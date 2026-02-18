@@ -4,7 +4,7 @@
 // @description  Highlight uncensored Russian bad words without censorship
 // @description:ru Выделяет нецензурные слова жёлтым маркером без цензуры
 // @namespace    https://github.com/Vova-iz-Tambova
-// @version      1.1
+// @version      1.3
 // @author       Vova-iz-Tambova
 // @homepageURL  https://github.com/Vova-iz-Tambova/rus-uncensored-words-highlight
 // @supportURL   https://github.com/Vova-iz-Tambova/rus-uncensored-words-highlight/issues
@@ -14,7 +14,7 @@
 // @run-at       document-end
 // ==/UserScript==
 
-(function () {
+(function() {
     'use strict';
 
     // ========================
@@ -24,9 +24,9 @@
     const PATTERN_PIDOR = '[пП][иИ][дД][оО0oOаАaA@]?[рРpP]';
     const PATTERN_PIZD = '[пП][иИ]?[зЗ3][дД]';
     const PATTERN_MANDA = '(?<![оО])[мМ][аАaA@][нНhH][дД][аАaA@]';
-    const PATTERN_HUI = '[хХxX\u274C\u00D7][уУyY][лЛйЙёЁяЯиИеЕeEаАa@]';
-    const PATTERN_BLYA = '(?<![уУрРаА])[бБ6пП][лЛ][яЯ](?![жЖсСшШкК])';
-    const PATTERN_EBA = '(?<![дДтТлЛрРсСcCвВнНчЧRr])[еЕёЁeE][бБ6b][аАaA@лЛиИоО0oOуУyYеЕёЁ]';
+    const PATTERN_HUI = '[хХxX\u00D7][уУyY][лЛйЙёЁëËяЯиИеЕeEаАa@]';
+    const PATTERN_BLYA = '(?<![уУрРаАеЕ])[бБ6пП][лЛ][яЯ](?![жЖсСшШкК])';
+    const PATTERN_EBA = '(?<![дДтТлЛрРсСcCвВнНчЧRr])[еЕёЁeEëËиИ][бБ6b][аАaA@лЛиИоО0oOуУyYеЕёЁëË]';
 
     // Объединённая регулярка
     const regex = new RegExp(

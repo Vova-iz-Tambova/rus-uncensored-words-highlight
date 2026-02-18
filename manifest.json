@@ -11,7 +11,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["/userscript/Russian Uncensored Words Highlight-1.1.user.js"],
+      "js": ["/userscript/Russian Uncensored Words Highlight-1.3.user.js"],
       "run_at": "document_end"
     }
   ],
