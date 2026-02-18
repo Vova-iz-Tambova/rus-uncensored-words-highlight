@@ -1,0 +1,16 @@
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build (if we add extension later)
+dist/
+node_modules/
+package-lock.json
+yarn.lock

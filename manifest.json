@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Russian Uncensored Words Highlight",
+  "version": "1.1",
+  "description": "Браузерное расширение для визуальной подсветки матерных слов без цензуры",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["/userscript/Russian Uncensored Words Highlight-1.1.user.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Подсветка нецензурных матерных слов"
+  }
+}
