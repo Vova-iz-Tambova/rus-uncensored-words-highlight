@@ -1,22 +1,27 @@
 {
   "manifest_version": 3,
-  "name": "Russian Uncensored Words Highlight",
-  "version": "1.1",
-  "description": "Браузерное расширение для визуальной подсветки матерных слов без цензуры",
+  "name": "Подсветка нецензурных слов",
+  "version": "1.4",
+  "description": "Выделяет матерные слова без цензуры жёлтым маркером",
+  "author": "Vova-iz-Tambova",
+  "homepage_url": "https://github.com/Vova-iz-Tambova/rus-uncensored-words-highlight",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+  "permissions": [],
+  "host_permissions": ["<all_urls>"],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["/userscript/Russian Uncensored Words Highlight-1.3.user.js"],
-      "run_at": "document_end"
+      "js": ["patterns.js", "content.js"],
+      "run_at": "document_end",
+      "all_frames": true
     }
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Подсветка нецензурных матерных слов"
+    "default_title": "Подсветка нецензурных слов"
   }
 }
