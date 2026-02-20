@@ -1,14 +1,12 @@
 (function() {
     'use strict';
 
-    // ========================
-    // ИНЖЕКТИМ СТИЛИ
-    // ========================
+    // Стили
     if (!document.getElementById('highlight-style')) {
         const style = document.createElement('style');
         style.id = 'highlight-style';
         style.textContent = `
-            .hl-mui-test {
+            .hl-yellow {
                 background-color: #ff0 !important;
                 color: #000 !important;
                 padding: 0 !important;
@@ -21,179 +19,92 @@
     }
 
     // ========================
-    // ФИЛЬТРЫ
+    // ЗАЩИТА ОТ РЕКУРСИИ + ФИЛЬТР ДЛЯ ID/ССЫЛОК
     // ========================
-    function shouldSkipText(text) {
-        if (!text.trim()) return true;
-        if (text.length < 3) return true;
-        if (text.includes('://')) return true;
-        if (text.includes('/video/')) return true;
-        if (text.includes('/channel/')) return true;
-        if (/^[0-9a-fA-F]{32}$/.test(text.trim())) return true;
-        return false;
-    }
+    function highlightNode(node) {
+        if (node.nodeType !== Node.TEXT_NODE) return;
+        if (!node.textContent || !node.parentNode) return;
+        if (node.parentNode.hasAttribute('data-highlighted')) return;
 
-    // ========================
-    // ПОДСВЕТКА ВСЕХ СОВПАДЕНИЙ В СПАНЕ
-    // ========================
-    function highlightAllMatches(span) {
-        if (!span.parentNode) return;
-        if (span.classList.contains('hl-mui-test')) return;
+        const text = node.textContent.trim();
 
-        const text = span.textContent;
-        if (shouldSkipText(text)) return;
+        // Фильтр для 32-значных хешей
+        if (/^[0-9a-fA-F]{32}$/.test(text)) return;
 
-        // Находим ВСЕ совпадения
-        regex.lastIndex = 0;
-        const matches = [];
-        let match;
-        while ((match = regex.exec(text)) !== null) {
-            matches.push({
-                index: match.index,
-                length: match[0].length
-            });
-        }
+        // Фильтр для ссылок и путей
+        if (text.includes('://') || text.includes('/video/')) return;
 
-        if (matches.length === 0) return;
+        if (!regex.test(text)) return;
 
-        // Создаём фрагмент со всеми выделениями
+        const parent = node.parentNode;
         const fragment = document.createDocumentFragment();
         let lastIndex = 0;
+        let match;
+        regex.lastIndex = 0;
 
-        matches.forEach((m) => {
-            // Текст до мата
-            if (m.index > lastIndex) {
-                fragment.appendChild(document.createTextNode(text.substring(lastIndex, m.index)));
+        while ((match = regex.exec(text)) !== null) {
+            if (match.index > lastIndex) {
+                fragment.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
             }
+            const span = document.createElement('span');
+            span.className = 'hl-yellow';
+            span.setAttribute('data-highlighted', 'true');
+            span.textContent = match[0];
+            fragment.appendChild(span);
+            lastIndex = match.index + match[0].length;
+        }
 
-            // Сам мат
-            const highlight = document.createElement('span');
-            highlight.className = 'hl-mui-test';
-            highlight.textContent = text.substring(m.index, m.index + m.length);
-            fragment.appendChild(highlight);
-
-            lastIndex = m.index + m.length;
-        });
-
-        // Оставшийся текст после последнего мата
         if (lastIndex < text.length) {
             fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
         }
-
-        // Заменяем только если есть что заменять
-        if (fragment.childNodes.length > 1 && span.parentNode) {
-            span.parentNode.replaceChild(fragment, span);
-        }
+        parent.replaceChild(fragment, node);
     }
 
     // ========================
-    // ПРОВЕРКА ВСЕХ СПАНОВ
+    // ОБРАБОТКА НУЖНЫХ ТЕГОВ
     // ========================
-    function checkAllSpans() {
-        const spans = document.querySelectorAll('span:not(.hl-mui-test)');
+    function processTargetElements() {
+        const elements = document.querySelectorAll('span, h6, div');
 
-        spans.forEach(span => {
-            if (span.classList.contains('hl-mui-test')) return;
-
-            const group = [span];
-            let prev = span.previousSibling;
-            let next = span.nextSibling;
-
-            while (prev && prev.nodeType === Node.ELEMENT_NODE && prev.tagName === 'SPAN' && !prev.classList.contains('hl-mui-test')) {
-                group.unshift(prev);
-                prev = prev.previousSibling;
-            }
-
-            while (next && next.nodeType === Node.ELEMENT_NODE && next.tagName === 'SPAN' && !next.classList.contains('hl-mui-test')) {
-                group.push(next);
-                next = next.nextSibling;
-            }
-
-            if (group.length === 1) {
-                highlightAllMatches(span);
-                return;
-            }
-
-            const fullText = group.map(s => s.textContent).join('');
-            if (shouldSkipText(fullText)) return;
-
-            // Находим ВСЕ совпадения в объединённом тексте
-            regex.lastIndex = 0;
-            const matches = [];
-            let match;
-            while ((match = regex.exec(fullText)) !== null) {
-                matches.push({
-                    index: match.index,
-                    length: match[0].length
-                });
-            }
-
-            if (matches.length === 0) return;
-
-            // Подсвечиваем каждый спан
-            let currentPos = 0;
-            group.forEach((s) => {
-                const spanStart = currentPos;
-                const spanEnd = currentPos + s.textContent.length;
-
-                // Проверяем, есть ли маты в этом спане
-                const spanMatches = matches.filter(m => 
-                    m.index < spanEnd && (m.index + m.length) > spanStart
-                );
-
-                if (spanMatches.length > 0) {
-                    // Создаём фрагмент для этого спана
-                    const fragment = document.createDocumentFragment();
-                    let lastIndex = 0;
-                    const spanText = s.textContent;
-
-                    spanMatches.forEach((m) => {
-                        const localStart = Math.max(0, m.index - spanStart);
-                        const localEnd = Math.min(spanText.length, m.index + m.length - spanStart);
-
-                        if (localStart > lastIndex) {
-                            fragment.appendChild(document.createTextNode(spanText.substring(lastIndex, localStart)));
-                        }
-
-                        const highlight = document.createElement('span');
-                        highlight.className = 'hl-mui-test';
-                        highlight.textContent = spanText.substring(localStart, localEnd);
-                        fragment.appendChild(highlight);
-
-                        lastIndex = localEnd;
-                    });
-
-                    if (lastIndex < spanText.length) {
-                        fragment.appendChild(document.createTextNode(spanText.substring(lastIndex)));
-                    }
-
-                    if (fragment.childNodes.length > 1 && s.parentNode) {
-                        s.parentNode.replaceChild(fragment, s);
-                    }
+        elements.forEach(element => {
+            const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+            let textNode;
+            while (textNode = walker.nextNode()) {
+                if (textNode.isConnected && !textNode.parentNode.hasAttribute('data-highlighted')) {
+                    highlightNode(textNode);
                 }
-
-                currentPos = spanEnd;
-            });
+            }
         });
     }
 
     // ========================
-    // ЗАПУСК
+    // OBSERVER ДЛЯ ДИНАМИЧЕСКОГО КОНТЕНТА
     // ========================
-    setTimeout(() => {
-        checkAllSpans();
-    }, 500);
-
-    setInterval(() => {
-        checkAllSpans();
-    }, 2000);
-
-    const observer = new MutationObserver(() => {
-        checkAllSpans();
+    const observer = new MutationObserver(mutations => {
+        mutations.forEach(mutation => {
+            mutation.addedNodes.forEach(node => {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    if (node.tagName === 'SPAN' || node.tagName === 'H6' || node.tagName === 'DIV') {
+                        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
+                        let textNode;
+                        while (textNode = walker.nextNode()) {
+                            if (textNode.isConnected && !textNode.parentNode.hasAttribute('data-highlighted')) {
+                                highlightNode(textNode);
+                            }
+                        }
+                    }
+                }
+            });
+        });
     });
 
     observer.observe(document.body, {
         childList: true,
         subtree: true
     });
+
+    // ========================
+    // ПЕРИОДИЧЕСКАЯ ПРОВЕРКА (каждые 2 секунды)
+    // ========================
+    setInterval(processTargetElements, 2000);
 })();
