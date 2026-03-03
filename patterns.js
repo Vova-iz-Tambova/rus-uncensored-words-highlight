@@ -1,30 +1,37 @@
 // ========================
 // ПАТТЕРНЫ (10 штук)
 // ========================
-const PATTERN_DOLBO = '[дД][оО0oO][лЛ][бБ6][аА@оО0oO][еЕёЁeEëË]{1,2}[бБ6bпП]';
-const PATTERN_ZALUPA = '[зЗ3][аАaA@][лЛ][уУyY][пП][аАaA@уУyYоО0oOыЫ]';
-const PATTERN_PIDOR = '[пП][иИ](?:[дД]|[тТ](?![еЕ][рРpP]))[оО0oOаАaA@еЕёЁeE]?[рРpP]';
-const PATTERN_PIZD = '[пП][иИеЕ]?[зЗ3сС][дДтТ]';
-const PATTERN_MANDA = '(?<![оО])[мМ][аАaA@][нНhH][дД][аАaA@оО0oO]';
-const PATTERN_HUI = '[хХxX\u00D7][уУyY][лЛйЙёЁяЯеЕeEаАaA@][иИтТ]?(?![еЕтТгГсС]|[иИ][тТ][еЕсС])';
-const PATTERN_BLYA = '(?<![нН][оО0oO])(?<![аА@еЕоОмМрРуУ])[бБ6пП][лЛ][яЯ](?![жЖсСшШкКюЮ])';
-const PATTERN_EBA = '(?<![б-дБ-ДкКлЛмМнНпПрРсСтТцЧчЧшШщЩRrcC])[еЕёЁeEëË][бБ6bпП](?![иИ][тТ])(?![оО][чЧ][кК])(?![нН][аАеЕиИоОуУыЫэЭюЮяЯ]?(?![а-яА-Я]))[аАaA@еЕёЁëËиИкКнНоО0oOуУyYhH]';
-const PATTERN_EBLO = '(?<![б-дБ-ДкКлЛмМнНпПрРсСтТцЧчЧшШщЩRrcC])[еЕёЁeEëË][бБ6bпП][лЛ][аА@нНоО0oOкК]';
-const PATTERN_IBO = '(?<![аАлЛрРсСшШ])[иИ][бБ][оО0oO](?![кКлЛ\u0020])(?=[а-яА-Я])';
+const PATTERN_DOLBO =
+  "[дД][аАaA@оО0oO][лЛ][бБ6][аАaA@оО0oO](?![яЯдД])[еЕёЁ][бБ6пП]";
+const PATTERN_ZALUPA = "[зЗ3][аАaA@][лЛ][уУyY][пП]";
+const PATTERN_PIDOR = "(?<![сС])[пП][иИ][дД][оО0oOаА@еЕ]?[рРpP]";
+const PATTERN_PIZD =
+  "(?<![аАэЭ]|[тТ][иИ])[пП][еЕиИ][жЖзЗ3][дДтТ]?(?![аА][мМ]|[нН]|[\u0020])";
+const PATTERN_MAND =
+  "(?<![кК][аАоО0oO]|[тТ])[мМ][аАaA@][нН][дД](?![аА][лЛрРтТ]|[жЖрР][аАиИыЫ]|[еЕ][лЛ])";
+const PATTERN_HUI =
+  "(?<![иИ])[хХxX][уУyY¥][еЕёЁиИйЙлЛюЮяЯ](?![иИ][гГ]|[иИ][тТ][ьЬеЕ]|[аА])";
+const PATTERN_BLYA = "(?<![аАеЕмМрРуУюЮ])[бБ6][лЛ][@яЯ](?![шШ])";
+const PATTERN_EBA =
+  "(?<![бБвВгГдДжЖкКлЛмМнНоОрРсСтТцЦчЧшШщЩ])[еЕёЁиИ][бБ6пП][аАaA@αΑеЕиИоО0oOуУyY]?[кКлЛнНрРсСтТшШщЩ](?![еЕ][еЕзЗкКчЧ]|[аАиИ][тТ][оО\u0020\.,!?]|[уУ][лЛ]|[хХ][иИ])";
+const PATTERN_EBLO =
+  "(?<![дДгГнНпПрРтТчЧшШщЩ])[еЕёЁиИ][бБ6пП][лЛ][аАaA@оО0oO][нН]?";
+const PATTERN_IBO =
+  "(?<![\u0020аАгГкКлЛрРсСтТшШ])[иИ][бБ][оО](?![\u0020\.,!?;:])";
 
 // Объединённая регулярка
 const regex = new RegExp(
-    `(${[
-        PATTERN_DOLBO,
-        PATTERN_ZALUPA,
-        PATTERN_PIDOR,
-        PATTERN_PIZD,
-        PATTERN_MANDA,
-        PATTERN_HUI,
-        PATTERN_BLYA,
-        PATTERN_EBA,
-        PATTERN_EBLO,
-        PATTERN_IBO
-    ].join('|')})`,
-    'g'
+  `(${[
+    PATTERN_DOLBO,
+    PATTERN_ZALUPA,
+    PATTERN_PIDOR,
+    PATTERN_PIZD,
+    PATTERN_MAND,
+    PATTERN_HUI,
+    PATTERN_BLYA,
+    PATTERN_EBA,
+    PATTERN_EBLO,
+    PATTERN_IBO,
+  ].join("|")})`,
+  "g",
 );
