@@ -4,3 +4,4 @@ Thumbs.db
 *.crx
 icons/*.png
 !icons/.gitkeep
+CHANGELOG.md
