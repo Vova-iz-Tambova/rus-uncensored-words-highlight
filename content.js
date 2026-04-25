@@ -1,5 +1,5 @@
 (function () {
-  "use strict";
+  'use strict';
 
   if (!document.getElementById('highlight-style')) {
     const style = document.createElement('style');
@@ -17,43 +17,42 @@
     document.head.appendChild(style);
   }
 
-  // Функция для проверки, есть ли у элемента или его родителей стиль Highlight
-  function hasHighlightStyle(element) {
+  function removeDiacritics(str) {
+    return str.replace(/[\u0300-\u036f]/g, '');
+  }
+
+  // Проверяет, есть ли чужая подсветка (НЕ наша)
+  function isForeignHighlight(element) {
     if (!element) return false;
 
-    // Проверяем текущий элемент на наличие классов Highlight
-    if (element.classList) {
-      if (element.classList.contains('Highlight') ||
-        element.classList.contains('ht624ab15e-874e-4c59-8f53-3093b7dece4e') ||
-        element.hasAttribute('highlight') ||
-        element.hasAttribute('htmatch')) {
+    let el = element;
+    while (el && el !== document.body) {
+      // Чужая подсветка — это класс Highlight или атрибут highlight, НО не наш hl-yellow
+      if (el.classList) {
+        if ((el.classList.contains('Highlight') || el.hasAttribute('highlight')) &&
+          !el.classList.contains('hl-yellow')) {
+          return true;
+        }
+      }
+      if (el.tagName === 'EM' && el.hasAttribute('highlight') && !el.classList.contains('hl-yellow')) {
         return true;
       }
+      el = el.parentNode;
     }
-
-    // Проверяем тег em с классами Highlight
-    if (element.tagName === 'EM' && element.classList &&
-      (element.classList.contains('Highlight') || element.hasAttribute('highlight'))) {
-      return true;
-    }
-
     return false;
   }
 
-  function shouldSkipNode(node) {
-    if (!node || !node.parentNode) return true;
+  // Проверяет, есть ли наша подсветка
+  function isOurHighlight(element) {
+    if (!element) return false;
 
-    // Пропускаем узлы внутри INPUT/TEXTAREA
-    let el = node.parentNode;
+    let el = element;
     while (el && el !== document.body) {
-      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) return true;
-
-      // Если нашли элемент с Highlight стилем, пропускаем этот узел
-      if (hasHighlightStyle(el)) return true;
-
+      if (el.classList && el.classList.contains('hl-yellow')) {
+        return true;
+      }
       el = el.parentNode;
     }
-
     return false;
   }
 
@@ -61,131 +60,152 @@
     if (node.nodeType !== Node.TEXT_NODE) return;
     if (!node.textContent || !node.parentNode) return;
 
-    // Проверяем, не находится ли узел внутри Highlight элемента
-    if (shouldSkipNode(node)) return;
+    // Если текст уже внутри НАШЕЙ подсветки — пропускаем
+    if (isOurHighlight(node.parentNode)) return;
 
-    // Проверяем родительский элемент на Highlight стили
-    if (hasHighlightStyle(node.parentNode)) return;
+    // Если текст внутри ЧУЖОЙ подсветки — пропускаем
+    if (isForeignHighlight(node.parentNode)) return;
 
-    // Проверяем, не обработан ли уже этот узел
-    if (node.parentNode.hasAttribute('data-highlighted')) return;
+    // Пропускаем INPUT/TEXTAREA
+    let el = node.parentNode;
+    while (el && el !== document.body) {
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) return;
+      el = el.parentNode;
+    }
 
-    const text = node.textContent;
-    if (/^[0-9a-fA-F]{32}$/.test(text.trim())) return;
-    if (text.includes('://') || text.includes('/video/')) return;
+    const originalText = node.textContent;
+    if (/^[0-9a-fA-F]{32}$/.test(originalText.trim())) return;
+    if (originalText.includes('://') || originalText.includes('/video/')) return;
+    if (originalText.includes('<span class="hl-yellow"')) return;
 
-    // Проверяем, не содержит ли текст уже наши подсвеченные слова
-    if (text.includes('<span class="hl-yellow"')) return;
+    // Удаляем ударения из текста
+    const textWithoutDiacritics = removeDiacritics(originalText);
+    const textForSearch = ' ' + textWithoutDiacritics + ' .,!?';
+    const offset = 1;
 
     regex.lastIndex = 0;
-    if (!regex.test(text)) return;
+    if (!regex.test(textForSearch)) return;
 
     regex.lastIndex = 0;
-    const parent = node.parentNode;
+    const parentNode = node.parentNode;
 
-    // Дополнительная проверка родителя
-    if (hasHighlightStyle(parent)) return;
+    // Функция для преобразования индекса из строки без ударений в строку с ударениями
+    function mapIndex(cleanIndex) {
+      let originalIdx = 0;
+      let cleanIdx = 0;
+      const len = originalText.length;
 
-    const highlightedText = text.replace(regex, (match) => {
-      return `<span class="hl-yellow" data-highlighted="true">${match}</span>`;
-    });
+      while (originalIdx < len && cleanIdx < cleanIndex) {
+        // Если текущий символ — диакритика, он не считается в clean строке
+        if (/[\u0300-\u036f]/.test(originalText[originalIdx])) {
+          originalIdx++;
+          continue;
+        }
+        originalIdx++;
+        cleanIdx++;
+      }
+      return originalIdx;
+    }
+
+    const matches = [];
+    let match;
+    while ((match = regex.exec(textForSearch)) !== null) {
+      const startClean = match.index - offset;
+      if (startClean >= 0 && startClean < textWithoutDiacritics.length) {
+        const endClean = Math.min(startClean + match[0].length, textWithoutDiacritics.length);
+
+        const startOriginal = mapIndex(startClean);
+        const endOriginal = mapIndex(endClean);
+
+        matches.push({
+          start: startOriginal,
+          end: endOriginal,
+          matchedText: match[0]
+        });
+      }
+    }
+
+    if (matches.length === 0) return;
+
+    let result = '';
+    let lastIdx = 0;
+
+    for (const match of matches) {
+      result += originalText.substring(lastIdx, match.start);
+      const originalMatchedText = originalText.substring(match.start, match.end);
+      result += `<span class="hl-yellow">${originalMatchedText}</span>`;
+      lastIdx = match.end;
+    }
+    result += originalText.substring(lastIdx);
 
     const temp = document.createElement('div');
-    temp.innerHTML = highlightedText;
+    temp.innerHTML = result;
 
     while (temp.firstChild) {
-      parent.insertBefore(temp.firstChild, node);
+      parentNode.insertBefore(temp.firstChild, node);
     }
-    parent.removeChild(node);
+    parentNode.removeChild(node);
   }
 
   function processTargetElements() {
-    const elements = document.querySelectorAll('span, h6, div, p, a, li, td, th, em, strong, b, i');
-    elements.forEach(element => {
-      // Пропускаем элементы с Highlight стилями
-      if (hasHighlightStyle(element)) return;
-
-      // Пропускаем элементы внутри форм
-      if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.closest('input, textarea, [contenteditable]')) return;
-
-      // Пропускаем элементы, которые уже содержат наши подсветки
-      if (element.querySelector('.hl-yellow')) return;
-
-      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
-        acceptNode: function (node) {
-          // Пропускаем текст внутри Highlight элементов
-          let parent = node.parentNode;
-          while (parent && parent !== element) {
-            if (hasHighlightStyle(parent)) {
-              return NodeFilter.FILTER_REJECT;
-            }
-            parent = parent.parentNode;
-          }
-          return NodeFilter.FILTER_ACCEPT;
-        }
-      }, false);
-
-      let textNode;
-      while (textNode = walker.nextNode()) {
-        if (textNode.isConnected && !hasHighlightStyle(textNode.parentNode)) {
-          highlightNode(textNode);
-        }
+    // Находим все текстовые узлы на странице
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        // Пропускаем пустые узлы
+        if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
+        // Пропускаем узлы внутри наших подсветок
+        if (isOurHighlight(node.parentNode)) return NodeFilter.FILTER_REJECT;
+        // Пропускаем узлы внутри чужих подсветок
+        if (isForeignHighlight(node.parentNode)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
       }
-    });
+    }, false);
+
+    let textNode;
+    while (textNode = walker.nextNode()) {
+      if (textNode.isConnected) {
+        highlightNode(textNode);
+      }
+    }
   }
 
   const observer = new MutationObserver(mutations => {
     mutations.forEach(mutation => {
       mutation.addedNodes.forEach(node => {
         if (node.nodeType === Node.ELEMENT_NODE) {
-          // Пропускаем элементы с Highlight стилями
-          if (hasHighlightStyle(node)) return;
+          // Проверяем, не добавлен ли уже элемент с нашей подсветкой
+          if (node.querySelector && node.querySelector('.hl-yellow')) return;
 
-          // Пропускаем элементы внутри форм
-          if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.closest('input, textarea, [contenteditable]')) return;
-
-          if (node.tagName === 'SPAN' || node.tagName === 'H6' || node.tagName === 'DIV' ||
-            node.tagName === 'P' || node.tagName === 'A' || node.tagName === 'LI' ||
-            node.tagName === 'EM' || node.tagName === 'STRONG') {
-
-            // Проверяем, не содержит ли элемент уже наши подсветки
-            if (node.querySelector('.hl-yellow')) return;
-
+          setTimeout(() => {
             const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
               acceptNode: function (textNode) {
-                let parent = textNode.parentNode;
-                while (parent && parent !== node) {
-                  if (hasHighlightStyle(parent)) {
-                    return NodeFilter.FILTER_REJECT;
-                  }
-                  parent = parent.parentNode;
-                }
+                if (!textNode.textContent.trim()) return NodeFilter.FILTER_REJECT;
+                if (isOurHighlight(textNode.parentNode)) return NodeFilter.FILTER_REJECT;
+                if (isForeignHighlight(textNode.parentNode)) return NodeFilter.FILTER_REJECT;
                 return NodeFilter.FILTER_ACCEPT;
               }
             }, false);
 
             let textNode;
             while (textNode = walker.nextNode()) {
-              if (textNode.isConnected && !hasHighlightStyle(textNode.parentNode)) {
+              if (textNode.isConnected) {
                 highlightNode(textNode);
               }
             }
-          }
+          }, 100);
         }
       });
     });
   });
 
-  // Запускаем с небольшой задержкой после загрузки страницы
   setTimeout(() => {
     processTargetElements();
-  }, 1000);
+  }, 500);
 
   observer.observe(document.body, {
     childList: true,
     subtree: true
   });
 
-  // Увеличил интервал до 5 секунд для уменьшения нагрузки
-  setInterval(processTargetElements, 5000);
+  setInterval(processTargetElements, 1000);
 })();
