@@ -200,12 +200,12 @@
 
   setTimeout(() => {
     processTargetElements();
-  }, 500);
+  }, 100);
 
   observer.observe(document.body, {
     childList: true,
     subtree: true
   });
 
-  setInterval(processTargetElements, 1000);
+  setInterval(processTargetElements, 300);
 })();
