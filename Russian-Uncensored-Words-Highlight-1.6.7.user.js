@@ -1,5 +1,67 @@
+// ==UserScript==
+// @name         Подсветка нецензурных слов
+// @namespace    https://github.com/Vova-iz-Tambova
+// @version      1.6.7
+// @description  Выделяет матерные слова без цензуры жёлтым маркером
+// @author       Vova-iz-Tambova
+// @homepageURL  https://github.com/Vova-iz-Tambova/rus-uncensored-words-highlight
+// @supportURL   https://github.com/Vova-iz-Tambova/rus-uncensored-words-highlight/issues
+// @match        *://*/*
+// @grant        none
+// @run-at       document-end
+// ==/UserScript==
+
 (function () {
   'use strict';
+
+  const PATTERN_BLYAD = '(?<![аАмМюЮ]|[дДрР][уУ]|[дДсСтТ][еЕоО]|[гГкКоОщЩ][оОрРеЕ][еЕрРоО]|[иИ][сС][тТ][рР][еЕ]|[уУ][пП][оО][тТ][рР][еЕ])[бБьЬ6ⳝ][лЛ][@яЯ][дД]?(?![еЕлЛмМпПтТшШюЮяЯ])';
+  const PATTERN_BLYAT = '(?<![уУ]|[рРдД][оО]|[кК][оО][рР]|[аАоО][сС]{1,2}[лЛ][аА]|[иИпП][оОсС][тТ][рР][еЕ])[бБ6ⳝ][лЛ][яЯ][тТ]';
+  const PATTERN_DOLBO = '[дД][аАaA@оО0oO][лЛ][бБ6ⳝ][аАaA@оО0oO](?![яЯдД])[еЕёЁ][бБ6пП]';
+  const PATTERN_EB = '(?<![вВгГдДкКлЛнНпПрРсСтТцЦчЧшШщЩ])[еЕёЁ][бБⳝпП](?![аАеЕиИлЛнНоОрРсСтТ])';
+  const PATTERN_EBA = '(?<![бБвВгГдДжЖкКлЛмМнНпПрРсСтТцЦчЧшШщЩЗзЗcCdDrRmM]|[вВ][оО])[еЕeEёЁëε][бБьЬ6δⳝb][аАaA@αАеЕёЁиИμлЛнН0оОoOуУyYыЫ][рРвВеЕйЙнНрРуУyжЖлЛӆбБкКоОтТчЧшШщЩ]?(?![ҙ]|[сС][оО])';
+  const PATTERN_EBLO = '(?<![бБвВдДгГлЛнНпПрРсСтТчЧшШщЩ])[еЕёЁиИэЭ][бБ6ⳝпП][лЛ][аАaA@оО0oO][нН]?(?![йЙкК])';
+  const PATTERN_HUI = '(?<![уУ]|[гГлЛ][оО]|(^|\\s|[вВ])[лЛтТ][иИ])[хХxX×][уУyY¥][ёЁиИлЛ](?![аАуУыЫ]|[иИ][гГоОьЬяЯ]|[иИ][тТшШ][ьЬеЕ])';
+  const PATTERN_HUY = '(?<![кК]|[лЛсСтТ][иИуУоО]|[сС][тТ][рР][аА])[хХxX×ⲭχ][уУyY¥ⲩγ][еЕ3йЙÑύюЮяЯ]';
+  const PATTERN_HUYN = '[хХxX×][уУyY¥][йЙÑ][нН]';
+  const PATTERN_IBI = '(?<![бБвВГгдДкКлЛмМнНпПсСрРтТшШчЧхХцЦфФ])[иИμ][бБⳝ][еЕиИμуУ](?![рРсСцЦ])';
+  const PATTERN_IPA = '(?<![вВдДгГзЗиИкКлЛнмМНпПрРсСтТцЦжЖхХчЧшШщЩ])[иИеЕ][пП][аАеЕёЁиИ](?![рРмМчЧфФ]|[нН][чЧ]|[тТ][иИ]|[тТсС][ьЬкК][еЕоО][вВпП])';
+  const PATTERN_MAND = '(?<![кК][аАсСоО]|[аАиИлЛрРтТ])[мМ][аАaA@][нН][ьЬ]?[дД](?![аАиИ][лЛрРтТ]|[жЖрР][аАиИоОыЫ]|[еЕоО][бБлЛ])';
+  const PATTERN_PIDOR = '(?<![аАиИ4])[пП][иИэЭ]?[дД][оО0oOаА@еЕэЭ]?[рРpPrR\\s](?![дД]|[аА][нН]|[иИ](\\s|[.,!?]))';
+  const PATTERN_PEST = '[пП][еЕ][сС][дДтТ](?![кКоОрР]|[иИеЕуУ][кКлЛнНцЦ]|[уУ][юЮ][тТ])';
+  const PATTERN_PISD = '(?<![мМоОЯя]|[кКрР][аА])[пП][иИ]?[сС][дДтТ](?![вВ]|[еЕ][йЙрР]|[оО][лЛнНрР]|[рР][аА][нН]|[оО][лЛ][еЕ][тТ])';
+  const PATTERN_PITАR = '(?<![оО])[пП][иИ][тТ][аА@оО]?[рР](?![иИ])';
+  const PATTERN_PITER = '(?<![еЕоОюЮ(])[пП][иИ][тТ][еЕ]?[рР](?![бБиИоОсСуУ)]|[аАеЕ":;](\\s|[.,!?])|\\s|[.,!?])';
+  const PATTERN_PIZD = '(?<![эЭ]|[тТ][иИ])[пП5π][еЕиИыЫ]?[зЗ3жЖ]{1,2}[ьЬ]?[дДтТ](?![еЕ][сС])';
+  const PATTERN_PIZH = '[пП][иИ][жЖ](?![\u0020аАмМоО])';
+  const PATTERN_PLYA = '(?<![аАеЕиИоОмМуУыЫ])[пП][лЛ][@яЯ](?![жЖсСшШюЮ])';
+  const PATTERN_ZALUPA = '[зЗ3][аАaA@][лЛ][уУyY][пП]';
+
+  const regex = new RegExp(
+      `(${[
+          PATTERN_BLYAD,
+          PATTERN_BLYAT,
+          PATTERN_DOLBO,
+          PATTERN_EB,
+          PATTERN_EBA,
+          PATTERN_EBLO,
+          PATTERN_HUI,
+          PATTERN_HUY,
+          PATTERN_HUYN,
+          PATTERN_IBI,
+          PATTERN_IPA,
+          PATTERN_MAND,
+          PATTERN_PIDOR,
+          PATTERN_PEST,
+          PATTERN_PISD,
+          PATTERN_PITАR,
+          PATTERN_PITER,
+          PATTERN_PIZD,
+          PATTERN_PIZH,
+          PATTERN_PLYA,
+          PATTERN_ZALUPA
+      ].join('|')})`,
+      'g'
+  );
 
   if (!document.getElementById('highlight-style')) {
     const style = document.createElement('style');
@@ -131,7 +193,6 @@
         if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
         if (isOurHighlight(node.parentNode)) return NodeFilter.FILTER_REJECT;
         if (isForeignHighlight(node.parentNode)) return NodeFilter.FILTER_REJECT;
-        // Не обрабатываем STYLE, SCRIPT, SVG
         const tag = node.parentNode.tagName;
         if (tag === 'STYLE' || tag === 'SCRIPT' || tag === 'SVG') return NodeFilter.FILTER_REJECT;
         return NodeFilter.FILTER_ACCEPT;
