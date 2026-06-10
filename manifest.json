@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Подсветка нецензурных слов",
-  "version": "1.6.7",
+  "version": "2.0.0",
   "description": "Выделяет матерные слова без цензуры жёлтым маркером",
   "author": "Vova-iz-Tambova",
   "homepage_url": "https://github.com/Vova-iz-Tambova/rus-uncensored-words-highlight",
@@ -10,8 +10,11 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": [],
+  "permissions": ["storage", "contextMenus"],
   "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
