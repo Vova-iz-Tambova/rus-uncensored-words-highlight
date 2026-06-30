@@ -196,6 +196,20 @@
             outline: none;
             white-space: pre;
         }
+        .word-text.blocked {
+            color: #c62828;
+        }
+        .blocked-link {
+            font-size: 10px;
+            color: #1976d2;
+            margin-right: 4px;
+            cursor: pointer;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        .blocked-link:hover {
+            text-decoration: underline;
+        }
 
         .filename-row {
             display: flex;
@@ -270,6 +284,21 @@
             color: #c62828;
         }
         .delete-do:hover { background: #ffebee; }
+
+        .add-list-btn {
+            width: 100%;
+            padding: 5px 0;
+            border: 1px solid #43a047;
+            border-radius: 4px;
+            background: #fff;
+            color: #2e7d32;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background .15s, transform .1s;
+            flex-shrink: 0;
+        }
+        .add-list-btn:hover { background: #e8f5e9; }
+        .add-list-btn:active { transform: scale(0.96); }
 
         #lists, #editor, #addView, #infoView {
             transition: opacity .12s ease;
@@ -386,18 +415,17 @@
         .confirm-btn {
             display: block;
             width: 100%;
-            padding: 8px 0;
-            border: none;
-            border-radius: 6px;
-            background: #007aff;
-            color: #fff;
-            font-size: 13px;
-            font-weight: 500;
+            padding: 5px 0;
+            border: 1px solid #007aff;
+            border-radius: 4px;
+            background: #fff;
+            color: #007aff;
             cursor: pointer;
-            transition: background .15s, opacity .15s, transform .1s;
-            margin-top: 4px;
+            font-size: 12px;
+            transition: background .15s, transform .1s;
+            flex-shrink: 0;
         }
-        .confirm-btn:hover:not(:disabled) { background: #0062cc; }
+        .confirm-btn:hover:not(:disabled) { background: #e3f2fd; }
         .confirm-btn:active:not(:disabled) { transform: scale(0.96); }
         .confirm-btn:disabled { opacity: .4; cursor: default; }
 
@@ -422,16 +450,62 @@
         }
         .info-label { color: #888; width: 100px; flex-shrink: 0; }
         .info-value { color: #222; }
+
+        .file-upload-section {
+            padding: 8px 0;
+            margin: 4px 0;
+            flex-shrink: 0;
+        }
+        .fu-title-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+        .fu-title {
+            flex: 1;
+            font-size: 12px;
+            color: #555;
+        }
+        .fu-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+        .fu-filename {
+            color: #666;
+            font-size: 11px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            text-align: center;
+            max-width: 100%;
+        }
+        .fu-info {
+            font-size: 11px;
+            color: #666;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
     <div class="header" id="mainHeader">
         <button class="header-info-btn" id="infoBtn" title="О расширении">i</button>
         <h1>Подсветка слов</h1>
-        <button class="add-btn" id="addBtn" title="Добавить список">+</button>
+        <button class="header-info-btn" id="settingsBtn" title="Настройки">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+        </button>
     </div>
 
     <div id="lists"></div>
+    <div id="listsFooter" style="flex-shrink:0;padding-top:8px;">
+      <button class="add-list-btn" id="addListBtn">Добавить список</button>
+    </div>
     <div id="editor" style="display:none"></div>
     <div id="addView" style="display:none"></div>
     <div id="infoView" style="display:none"></div>

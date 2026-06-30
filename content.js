@@ -11,22 +11,6 @@
   let activeLists = [];
   let customRegexCache = {};
 
-  function removeDiacritics(str) {
-    return str.replace(/[\u0300-\u036f]/g, '');
-  }
-
-  function mapIndex(originalText, cleanIndex) {
-    let originalIdx = 0, cleanIdx = 0;
-    const len = originalText.length;
-    while (originalIdx < len && cleanIdx < cleanIndex) {
-      if (/[\u0300-\u036f]/.test(originalText[originalIdx])) {
-        originalIdx++; continue;
-      }
-      originalIdx++; cleanIdx++;
-    }
-    return originalIdx;
-  }
-
   function isForeignHighlight(element) {
     if (!element) return false;
     let el = element;
@@ -55,6 +39,21 @@
     return false;
   }
 
+  function isSiteDisabled(disabledSites) {
+    if (!disabledSites || disabledSites.length === 0) return false;
+    const hostname = window.location.hostname.toLowerCase();
+    return disabledSites.some(pattern => {
+      pattern = pattern.toLowerCase().trim();
+      if (!pattern) return false;
+      const regexStr = '^' + pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
+      try {
+        return new RegExp(regexStr).test(hostname);
+      } catch (e) {
+        return false;
+      }
+    });
+  }
+
   function compileCustomWordsRegex(words, matchInside) {
     const filtered = words.map(w => w.trim()).filter(w => w);
     if (filtered.length === 0) return null;
@@ -68,9 +67,12 @@
         partial.push(w);
       }
     }
+    function esc(w) {
+      return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
     const parts = [];
-    if (partial.length) parts.push(partial.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'));
-    if (exact.length) parts.push('\\b(' + exact.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b');
+    if (partial.length) parts.push(partial.map(esc).join('|'));
+    if (exact.length) parts.push('(?<![\\p{L}])(' + exact.map(esc).join('|') + ')(?![\\p{L}])');
     if (parts.length === 0) return null;
     return new RegExp(parts.join('|'), 'giu');
   }
@@ -96,8 +98,11 @@
         customRegexCache[list.id] = compilePatternSource(list.patternSource);
         activeLists.push(list);
       } else if (list.type === 'builtin') {
-        const builtinRe = list.words && list.words.length ? compileCustomWordsRegex(list.words, list.matchInside) : null;
-        customRegexCache[list.id] = { pattern: regex, custom: builtinRe };
+        if (list.words && list.words.length) {
+          customRegexCache[list.id] = compileCustomWordsRegex(list.words, list.matchInside);
+        } else {
+          customRegexCache[list.id] = regex;
+        }
         activeLists.push(list);
       }
     }
@@ -110,28 +115,6 @@
   function getListMatches(text, list) {
     const re = customRegexCache[list.id];
     if (!re) return [];
-    if (list.type === 'builtin') {
-      const clean = removeDiacritics(text);
-      const padded = ' ' + clean + ' .,!?';
-      const matches = [];
-      let re2 = re.pattern;
-      re2.lastIndex = 0;
-      let m;
-      while ((m = re2.exec(padded)) !== null) {
-        const s = m.index - 1;
-        if (s >= 0 && s < clean.length) {
-          const e = Math.min(s + m[0].length, clean.length);
-          matches.push({ start: mapIndex(text, s), end: mapIndex(text, e) });
-        }
-      }
-      if (re.custom) {
-        re.custom.lastIndex = 0;
-        while ((m = re.custom.exec(text)) !== null) {
-          matches.push({ start: m.index, end: m.index + m[0].length });
-        }
-      }
-      return matches;
-    }
     re.lastIndex = 0;
     const matches = [];
     let m;
@@ -157,7 +140,6 @@
 
     const text = node.textContent;
     if (/^[0-9a-fA-F]{32}$/.test(text.trim())) return;
-    if (text.includes('://') || text.includes('/video/')) return;
 
     const allMatches = [];
     for (const list of activeLists) {
@@ -169,9 +151,9 @@
 
     allMatches.sort((a, b) => {
       if (a.start !== b.start) return a.start - b.start;
-      if (a.list.type === 'custom' && b.list.type !== 'custom') return -1;
-      if (a.list.type !== 'custom' && b.list.type === 'custom') return 1;
-      return 0;
+      const aPrio = (a.list.type === 'custom' || a.list.type === 'file') ? 0 : (a.list.type === 'builtin' ? 1 : 2);
+      const bPrio = (b.list.type === 'custom' || b.list.type === 'file') ? 0 : (b.list.type === 'builtin' ? 1 : 2);
+      return aPrio - bPrio;
     });
 
     const claimed = new Array(text.length).fill(null);
@@ -206,10 +188,103 @@
     node.parentNode.replaceChild(wrapper, node);
   }
 
+  function getBlockAncestor(node) {
+    const blocks = new Set(['P','DIV','H1','H2','H3','H4','H5','H6','LI','TD','TH','SECTION','ARTICLE','HEADER','FOOTER','MAIN','ASIDE','NAV','BLOCKQUOTE','DD','DT','FIGCAPTION','FIGURE','BODY']);
+    let el = node.parentNode;
+    while (el && el !== document.body) {
+      if (blocks.has(el.tagName)) return el;
+      el = el.parentNode;
+    }
+    return document.body;
+  }
+
+  function processTextGroup(nodes) {
+    if (nodes.length === 0) return;
+    if (nodes.length === 1) { highlightNode(nodes[0]); return; }
+
+    let combined = '';
+    const map = [];
+    for (const n of nodes) {
+      for (let ci = 0; ci < n.textContent.length; ci++) map.push(n);
+      combined += n.textContent;
+    }
+    if (!combined.trim()) return;
+
+    const allMatches = [];
+    for (const list of activeLists) {
+      for (const m of getListMatches(combined, list)) {
+        allMatches.push({ start: m.start, end: m.end, list });
+      }
+    }
+    if (allMatches.length === 0) return;
+
+    allMatches.sort((a, b) => {
+      if (a.start !== b.start) return a.start - b.start;
+      const aPrio = (a.list.type === 'custom' || a.list.type === 'file') ? 0 : (a.list.type === 'builtin' ? 1 : 2);
+      const bPrio = (b.list.type === 'custom' || b.list.type === 'file') ? 0 : (b.list.type === 'builtin' ? 1 : 2);
+      return aPrio - bPrio;
+    });
+
+    const claimed = new Array(combined.length).fill(null);
+    for (const m of allMatches) {
+      for (let i = m.start; i < Math.min(m.end, combined.length); i++) {
+        if (claimed[i] === null) claimed[i] = m.list;
+      }
+    }
+
+    const nodeParts = new Map();
+    for (const n of nodes) nodeParts.set(n, '');
+
+    let i = 0;
+    while (i < combined.length) {
+      const cList = claimed[i];
+      let j = i;
+      while (j < combined.length && claimed[j] === cList) j++;
+      const chunk = combined.substring(i, j);
+
+      if (cList) {
+        for (let p = i; p < j;) {
+          const node = map[p];
+          const start = p;
+          while (p < j && map[p] === node) p++;
+          const seg = combined.substring(start, p);
+          let segHtml;
+          if (cList.style === 'text') {
+            segHtml = `<span style="color:${cList.color}">${escapeHtml(seg)}</span>`;
+          } else {
+            segHtml = `<span class="hl-w" style="background-color:${cList.color};color:${cList.textColor || '#000'}">${escapeHtml(seg)}</span>`;
+          }
+          nodeParts.set(node, nodeParts.get(node) + segHtml);
+        }
+      } else {
+        // Distribute plain text per node
+        for (let p = i; p < j;) {
+          const node = map[p];
+          const start = p;
+          while (p < j && map[p] === node) p++;
+          nodeParts.set(node, nodeParts.get(node) + escapeHtml(combined.substring(start, p)));
+        }
+      }
+      i = j;
+    }
+
+    for (const n of nodes) {
+      const html = nodeParts.get(n);
+      if (!html) continue;
+      const wrapper = document.createElement('span');
+      wrapper.setAttribute('data-hl-wrapper', '');
+      wrapper.innerHTML = html;
+      n.parentNode.replaceChild(wrapper, n);
+    }
+  }
+
   function processNodeTree(root) {
+    if (root.nodeType === Node.TEXT_NODE) root = root.parentNode;
+    if (!root) return;
+
+    const textNodes = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
-        if (!node.textContent.trim()) return NodeFilter.FILTER_REJECT;
         if (isOurHighlight(node.parentNode)) return NodeFilter.FILTER_REJECT;
         if (isForeignHighlight(node.parentNode)) return NodeFilter.FILTER_REJECT;
         const tag = node.parentNode.tagName;
@@ -218,10 +293,23 @@
       }
     }, false);
 
-    let textNode;
-    while ((textNode = walker.nextNode())) {
-      if (textNode.isConnected) highlightNode(textNode);
+    let tn;
+    while ((tn = walker.nextNode())) {
+      if (tn.isConnected) textNodes.push(tn);
     }
+
+    const groups = [];
+    let cur = [];
+    let lastBlock = null;
+    for (const n of textNodes) {
+      const block = getBlockAncestor(n);
+      if (block !== lastBlock && cur.length) { groups.push(cur); cur = []; }
+      cur.push(n);
+      lastBlock = block;
+    }
+    if (cur.length) groups.push(cur);
+
+    for (const group of groups) { try { processTextGroup(group); } catch (e) { console.warn('highlight error', e); } }
   }
 
   function processTargetElements() {
@@ -281,7 +369,8 @@
     }
   });
 
-  chrome.storage.local.get('lists').then(data => {
+  chrome.storage.local.get(['lists', 'disabledSites']).then(data => {
+    if (isSiteDisabled(data.disabledSites)) return;
     if (data.lists) {
       buildActiveLists(data.lists);
       startWatching();
@@ -290,9 +379,23 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if ('lists' in changes) {
-      buildActiveLists(changes.lists.newValue);
-      refreshHighlights();
+    if ('lists' in changes || 'disabledSites' in changes) {
+      chrome.storage.local.get(['lists', 'disabledSites']).then(data => {
+        if (isSiteDisabled(data.disabledSites)) {
+          stopWatching();
+          return;
+        }
+        if (data.lists) {
+          buildActiveLists(data.lists);
+          if (!observer) {
+            startWatching();
+          } else {
+            refreshHighlights();
+          }
+        } else {
+          stopWatching();
+        }
+      });
     }
   });
 

@@ -1,30 +1,40 @@
+importScripts('patterns.js');
+
 const DEFAULT_LISTS = [
   { id: 'profanity', name: 'Русский мат', color: '#ff0', textColor: '#000', type: 'builtin', style: 'marker', enabled: true }
 ];
 
+let recreateTimer = null;
+
 function recreateMenus(lists) {
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: 'addWord',
-      title: 'Подсветить слово',
-      contexts: ['selection']
-    });
-    for (const list of lists) {
-      if (list.type === 'custom' || list.type === 'file' || list.type === 'builtin') {
-        chrome.contextMenus.create({
-          id: list.id,
-          parentId: 'addWord',
-          title: list.name,
-          contexts: ['selection']
-        });
+  if (recreateTimer) clearTimeout(recreateTimer);
+  recreateTimer = setTimeout(() => {
+    recreateTimer = null;
+    chrome.contextMenus.removeAll(() => {
+      chrome.contextMenus.create({
+        id: 'addWord',
+        title: 'Подсветить слово',
+        contexts: ['selection']
+      }, () => { void chrome.runtime.lastError; });
+      for (const list of lists) {
+        if (list.type === 'custom' || list.type === 'file') {
+          chrome.contextMenus.create({
+            id: list.id,
+            parentId: 'addWord',
+            title: '+ ' + list.name,
+            contexts: ['selection']
+          }, () => { void chrome.runtime.lastError; });
+        }
       }
-    }
-  });
+    });
+  }, 50);
 }
 
-chrome.runtime.onInstalled.addListener(details => {
-  if (details.reason !== 'install') return;
-  chrome.storage.local.get('lists').then(data => {
+function init() {
+  chrome.storage.local.get(['lists', 'disabledSites']).then(data => {
+    if (!data.disabledSites) {
+      chrome.storage.local.set({ disabledSites: ['*.avito.ru'] });
+    }
     if (!data.lists) {
       chrome.storage.local.set({ lists: DEFAULT_LISTS });
       recreateMenus(DEFAULT_LISTS);
@@ -48,7 +58,14 @@ chrome.runtime.onInstalled.addListener(details => {
       recreateMenus(merged);
     }
   });
-});
+}
+
+chrome.runtime.onInstalled.addListener(() => init());
+chrome.runtime.onStartup.addListener(() => init());
+
+function removeDiacritics(str) {
+  return str.replace(/[\u0300-\u036f]/g, '');
+}
 
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (message.action === 'updateTitles') {
@@ -56,16 +73,45 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     if (!word) return;
     chrome.storage.local.get('lists').then(data => {
       const lists = data.lists || [];
+      const wordLists = lists.filter(l => l.type === 'custom' || l.type === 'file');
       const lower = word.toLowerCase();
-      const wordLists = lists.filter(l => l.type === 'custom' || l.type === 'file' || l.type === 'builtin');
-      const inAny = wordLists.some(l => l.words && l.words.some(w => w.toLowerCase() === lower));
 
-      for (const list of wordLists) {
-        const inThis = list.words && list.words.some(w => w.toLowerCase() === lower);
-        const prefix = inThis ? '−' : inAny ? '>' : '+';
-        chrome.contextMenus.update(list.id, {
-          title: `${prefix} ${list.name}`
+      let matchesBuiltin = false;
+      try {
+        regex.lastIndex = 0;
+        const clean = removeDiacritics(word);
+        matchesBuiltin = regex.test(' ' + clean + ' .,!?');
+      } catch (e) { /* regex unavailable */ }
+
+      if (matchesBuiltin) {
+        for (const list of wordLists) {
+          chrome.contextMenus.remove(list.id, () => { if (chrome.runtime.lastError) { /* ignore */ } });
+        }
+        chrome.contextMenus.create({
+          id: 'profanity',
+          parentId: 'addWord',
+          title: '= Русский мат',
+          contexts: ['selection']
         }, () => { if (chrome.runtime.lastError) { /* ignore */ } });
+      } else {
+        chrome.contextMenus.remove('profanity', () => { if (chrome.runtime.lastError) { /* ignore */ } });
+        const inCount = wordLists.filter(l => l.words && l.words.some(w => w.toLowerCase() === lower)).length;
+        for (const list of wordLists) {
+          const inThis = list.words && list.words.some(w => w.toLowerCase() === lower);
+          const prefix = inThis ? '−' : inCount === 1 ? '>' : '+';
+          chrome.contextMenus.update(list.id, {
+            title: `${prefix} ${list.name}`
+          }, () => {
+            if (chrome.runtime.lastError) {
+              chrome.contextMenus.create({
+                id: list.id,
+                parentId: 'addWord',
+                title: `${prefix} ${list.name}`,
+                contexts: ['selection']
+              });
+            }
+          });
+        }
       }
     });
   }
@@ -73,13 +119,14 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.parentMenuItemId !== 'addWord') return;
+  if (info.menuItemId === 'profanity') return;
   const word = info.selectionText.trim();
   if (!word) return;
 
   chrome.storage.local.get('lists').then(data => {
     const lists = data.lists || [];
     const target = lists.find(l => l.id === info.menuItemId);
-    if (!target || (target.type !== 'custom' && target.type !== 'file' && target.type !== 'builtin')) return;
+    if (!target || (target.type !== 'custom' && target.type !== 'file')) return;
 
     const lower = word.toLowerCase();
     const inTarget = target.words && target.words.some(w => w.toLowerCase() === lower);
@@ -88,10 +135,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       const idx = target.words.findIndex(w => w.toLowerCase() === lower);
       target.words.splice(idx, 1);
     } else {
-      const inOther = lists.some(l => (l.type === 'custom' || l.type === 'file' || l.type === 'builtin') && l.id !== target.id && l.words && l.words.some(w => w.toLowerCase() === lower));
+      const inOther = lists.some(l => (l.type === 'custom' || l.type === 'file') && l.id !== target.id && l.words && l.words.some(w => w.toLowerCase() === lower));
       if (inOther) {
         for (const list of lists) {
-          if (list.type !== 'custom' && list.type !== 'file' && list.type !== 'builtin') continue;
+          if (list.type !== 'custom' && list.type !== 'file') continue;
           if (!list.words) continue;
           const idx = list.words.findIndex(w => w.toLowerCase() === lower);
           if (idx !== -1) list.words.splice(idx, 1);

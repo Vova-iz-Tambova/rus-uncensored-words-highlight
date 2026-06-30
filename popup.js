@@ -12,6 +12,19 @@ const PALETTE = [
 
 let currentLists = [];
 let editingList = null;
+let isSitesEditorOpen = false;
+
+function findWordInLists(word, excludeId) {
+  const lower = word.toLowerCase();
+  for (const list of currentLists) {
+    if (list.id === excludeId) continue;
+    if (list.type !== 'custom' && list.type !== 'file') continue;
+    if (list.words && list.words.some(w => w.toLowerCase() === lower)) {
+      return list;
+    }
+  }
+  return null;
+}
 
 function hideHeader() {
   document.getElementById('mainHeader').style.display = 'none';
@@ -27,11 +40,14 @@ function switchView(showId) {
     const el = document.getElementById(id);
     el.style.display = id === showId ? '' : 'none';
   }
+  const footer = document.getElementById('listsFooter');
+  if (footer) footer.style.display = showId === 'lists' ? '' : 'none';
 }
 
 function showMain() {
   showHeader();
   switchView('lists');
+  isSitesEditorOpen = false;
 }
 
 function renderLists(lists) {
@@ -133,50 +149,46 @@ function openEditor(list) {
   title.style.fontSize = '14px';
   title.textContent = list.name;
 
-  const uploadBtn = document.createElement('button');
-  uploadBtn.className = 'editor-upload-btn';
-  uploadBtn.title = 'Загрузить файл';
-  uploadBtn.innerHTML =
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'editor-upload-btn';
+  saveBtn.title = 'Сохранить в файл';
+  saveBtn.innerHTML =
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="white">' +
-    '<path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>' +
+    '<path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/>' +
     '</svg>';
 
-  const fileInput = document.createElement('input');
-  fileInput.type = 'file';
-  fileInput.style.display = 'none';
-  fileInput.accept = list.type === 'pattern' ? '.js' : '.txt,.js';
-
-  fileInput.addEventListener('change', () => {
-    const f = fileInput.files[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = e => {
-      if (list.type === 'pattern' || f.name.endsWith('.js')) {
-        list.type = 'pattern';
-        list.patternSource = e.target.result;
-        list.file = f.name;
-        list.style = 'marker';
-        list.color = list.color || '#7b1fa2';
-        list.textColor = '#fff';
-        delete list.words;
-      } else {
-        const lines = e.target.result.split('\n').map(w => w.trim()).filter(w => w);
-        list.words = lines;
-        list.file = f.name;
-      }
-      chrome.storage.local.set({ lists: currentLists });
-      openEditor(list);
-    };
-    reader.readAsText(f);
-  });
-  uploadBtn.addEventListener('click', () => fileInput.click());
-  document.body.appendChild(fileInput);
+  if (list.type !== 'custom' && list.type !== 'file') {
+    saveBtn.disabled = true;
+    saveBtn.style.opacity = '0.35';
+    saveBtn.style.cursor = 'default';
+    saveBtn.title = 'Сохранение недоступно для этого списка';
+  } else {
+    const hasWords = list.words && list.words.some(w => w.trim());
+    if (!hasWords) {
+      saveBtn.disabled = true;
+      saveBtn.style.opacity = '0.35';
+      saveBtn.style.cursor = 'default';
+      saveBtn.title = 'Нет слов для сохранения';
+    }
+    saveBtn.addEventListener('click', () => {
+      const text = list.words.filter(w => w.trim()).join('\n');
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = list.name + '.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  }
 
   const centerWrap = document.createElement('div');
   centerWrap.style.cssText = 'flex:1;display:flex;align-items:center;justify-content:center;gap:6px';
   centerWrap.append(dot, title);
 
-  header.append(back, centerWrap, uploadBtn);
+  header.append(back, centerWrap, saveBtn);
   editor.appendChild(header);
 
   if (list.type === 'pattern') {
@@ -197,6 +209,22 @@ function openEditor(list) {
 
     function saveWordList() {
       chrome.storage.local.set({ lists: currentLists });
+      updateSaveBtn();
+    }
+
+    function updateSaveBtn() {
+      const hasWords = list.words && list.words.some(w => w.trim());
+      if (hasWords) {
+        saveBtn.disabled = false;
+        saveBtn.style.opacity = '';
+        saveBtn.style.cursor = '';
+        saveBtn.title = 'Сохранить в файл';
+      } else {
+        saveBtn.disabled = true;
+        saveBtn.style.opacity = '0.35';
+        saveBtn.style.cursor = 'default';
+        saveBtn.title = 'Нет слов для сохранения';
+      }
     }
 
     function createWordRow(wordText, idx) {
@@ -223,6 +251,11 @@ function openEditor(list) {
       text.contentEditable = true;
       text.spellcheck = false;
       text.textContent = wordText;
+      const otherLists = currentLists.filter(l =>
+        l.id !== list.id && (l.type === 'custom' || l.type === 'file') &&
+        l.words && l.words.some(w => w.toLowerCase() === wordText.toLowerCase())
+      );
+      if (otherLists.length) text.classList.add('blocked');
 
       text.addEventListener('blur', () => {
         const val = text.textContent.trim();
@@ -287,6 +320,13 @@ function openEditor(list) {
       });
 
       row.append(cb, text);
+      for (const other of otherLists) {
+        const link = document.createElement('span');
+        link.className = 'blocked-link';
+        link.textContent = other.name;
+        link.addEventListener('click', () => openEditor(other));
+        row.append(link);
+      }
       return row;
     }
 
@@ -464,8 +504,145 @@ function openAddView() {
   builtinRow.append(builtinLabel, builtinToggle);
   builtinInput.addEventListener('change', () => {
     isBuiltin = builtinInput.checked;
+    if (isBuiltin) {
+      clearFileUpload();
+      fuBtn.disabled = true;
+      fuBtn.style.opacity = '0.35';
+    } else {
+      fuBtn.disabled = false;
+      fuBtn.style.opacity = '';
+    }
     updateUI();
   });
+
+  let loadedWords = [];
+  let loadedFileName = '';
+
+  const fileUploadSection = document.createElement('div');
+  fileUploadSection.className = 'file-upload-section';
+
+  const fuTitleRow = document.createElement('div');
+  fuTitleRow.className = 'fu-title-row';
+
+  const fuTitle = document.createElement('span');
+  fuTitle.className = 'fu-title';
+  fuTitle.textContent = 'Загрузить список из текстового файла';
+
+  const folderSvg =
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="white">' +
+    '<path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>' +
+    '</svg>';
+  const trashSvg =
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="white">' +
+    '<path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>' +
+    '</svg>';
+
+  const fuBtn = document.createElement('button');
+  fuBtn.className = 'editor-upload-btn';
+  fuBtn.title = 'Выбрать файл';
+  fuBtn.innerHTML = folderSvg;
+
+  fuTitleRow.append(fuTitle, fuBtn);
+
+  const fuRow = document.createElement('div');
+  fuRow.className = 'fu-row';
+
+  const fuFilename = document.createElement('span');
+  fuFilename.className = 'fu-filename';
+
+  const fuInfo = document.createElement('div');
+  fuInfo.className = 'fu-info';
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.txt';
+  fileInput.style.display = 'none';
+
+  function clearFileUpload() {
+    loadedWords = [];
+    loadedFileName = '';
+    fileInput.value = '';
+    fuBtn.innerHTML = folderSvg;
+    fuBtn.title = 'Выбрать файл';
+    fuBtn.style.background = '#1976d2';
+    builtinInput.disabled = false;
+    builtinSlider.style.opacity = '';
+    builtinLabel.style.opacity = '';
+    updateFileUI();
+    updateUI();
+  }
+
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      loadedWords = e.target.result.split('\n').map(w => w.trim()).filter(w => w);
+      const seen = new Set();
+      const deduped = [];
+      for (const w of loadedWords) {
+        const lower = w.toLowerCase();
+        if (!seen.has(lower)) { seen.add(lower); deduped.push(w); }
+      }
+      const dupCount = loadedWords.length - deduped.length;
+      loadedWords = deduped;
+
+      const skipped = [];
+      const afterCross = [];
+      for (const w of loadedWords) {
+        const other = findWordInLists(w, null);
+        if (other) skipped.push(w);
+        else afterCross.push(w);
+      }
+      const skipCount = skipped.length;
+      loadedWords = afterCross;
+
+      loadedFileName = f.name;
+      fuBtn.innerHTML = trashSvg;
+      fuBtn.title = 'Удалить файл';
+      fuBtn.style.background = '#c62828';
+      builtinInput.checked = false;
+      isBuiltin = false;
+      builtinInput.disabled = true;
+      builtinSlider.style.opacity = '0.35';
+      builtinLabel.style.opacity = '0.35';
+      updateFileUI(dupCount, skipCount);
+      updateUI();
+    };
+    reader.readAsText(f);
+  });
+
+  fuBtn.addEventListener('click', () => {
+    if (loadedWords.length) {
+      clearFileUpload();
+    } else {
+      fileInput.value = '';
+      fileInput.click();
+    }
+  });
+  document.body.appendChild(fileInput);
+
+  function updateFileUI(dupCount, skipCount) {
+    if (loadedWords.length) {
+      fuFilename.textContent = loadedFileName;
+      const parts = [`Загружено ${loadedWords.length} слов`];
+      if (dupCount) parts.push(`удалено ${dupCount} дубликатов`);
+      if (skipCount) parts.push(`${skipCount} пропущено (есть в других списках)`);
+      fuInfo.textContent = parts.join(', ');
+      fuInfo.style.color = (dupCount || skipCount) ? '#e65100' : '#666';
+      fuRow.style.display = '';
+    } else {
+      fuFilename.textContent = '';
+      fuInfo.textContent = '';
+      fuInfo.style.color = '#666';
+      fuRow.style.display = 'none';
+    }
+  }
+
+  updateFileUI();
+
+  fuRow.append(fuFilename);
+  fileUploadSection.append(fuTitleRow, fuRow, fuInfo);
 
   const confirmBtn = document.createElement('button');
   confirmBtn.className = 'confirm-btn';
@@ -510,18 +687,106 @@ function openAddView() {
       type: isBuiltin ? 'builtin' : 'custom',
       style: selectedType,
       enabled: true,
-      words: []
+      words: isBuiltin ? [] : loadedWords
     };
+
     currentLists.push(newList);
     chrome.storage.local.set({ lists: currentLists });
     renderLists(currentLists);
   });
 
+  const scrollArea = document.createElement('div');
+  scrollArea.style.cssText = 'flex: 1; min-height: 0; overflow-y: auto;';
+  scrollArea.append(palette, typeRow, builtinRow, fileUploadSection);
+
   view.innerHTML = '';
-  view.append(header, palette, typeRow, builtinRow, confirmBtn);
+  view.append(header, scrollArea, confirmBtn);
 
   back.addEventListener('click', () => renderLists(currentLists));
   switchView('addView');
+}
+
+function openSitesEditor() {
+  isSitesEditorOpen = true;
+  hideHeader();
+  document.getElementById('addView').style.display = 'none';
+  document.getElementById('infoView').style.display = 'none';
+  const editor = document.getElementById('editor');
+  editor.innerHTML = '';
+
+  const header = document.createElement('div');
+  header.className = 'editor-header';
+
+  const back = document.createElement('button');
+  back.className = 'back-btn';
+  back.textContent = '«';
+  back.title = 'Назад';
+
+  const title = document.createElement('span');
+  title.style.cssText = 'flex:1;text-align:center;font-weight:600;font-size:14px';
+  title.textContent = 'Игнорируемые сайты';
+
+  const uploadBtn = document.createElement('button');
+  uploadBtn.className = 'editor-upload-btn';
+  uploadBtn.title = 'Загрузить из файла';
+  uploadBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="white">' +
+    '<path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>' +
+    '</svg>';
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.style.display = 'none';
+  fileInput.accept = '.txt';
+
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const lines = e.target.result.split('\n').map(s => s.trim()).filter(s => s);
+      const existing = textarea.value.split('\n').map(s => s.trim()).filter(s => s);
+      const merged = [...new Set([...existing, ...lines])];
+      textarea.value = merged.join('\n');
+      chrome.storage.local.set({ disabledSites: merged });
+    };
+    reader.readAsText(f);
+  });
+  uploadBtn.addEventListener('click', () => fileInput.click());
+  document.body.appendChild(fileInput);
+
+  header.append(back, title, uploadBtn);
+  editor.appendChild(header);
+
+  const textarea = document.createElement('textarea');
+  textarea.className = 'list-textarea';
+  textarea.placeholder = 'avito.ru\n*.youtube.com\nexample.org';
+  textarea.style.flex = '1';
+
+  chrome.storage.local.get('disabledSites').then(data => {
+    textarea.value = (data.disabledSites || []).join('\n');
+  });
+
+  let saveTimer = null;
+  textarea.addEventListener('input', () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      const sites = textarea.value.split('\n').map(s => s.trim()).filter(s => s);
+      chrome.storage.local.set({ disabledSites: sites });
+    }, 300);
+  });
+
+  editor.append(textarea);
+
+  back.addEventListener('click', () => {
+    clearTimeout(saveTimer);
+    const sites = textarea.value.split('\n').map(s => s.trim()).filter(s => s);
+    chrome.storage.local.set({ disabledSites: sites }).then(() => {
+      renderLists(currentLists);
+    });
+  });
+
+  switchView('editor');
 }
 
 function openExtensionInfo() {
@@ -542,10 +807,13 @@ function openExtensionInfo() {
   title.style.cssText = 'flex:1;text-align:center;font-weight:600;font-size:14px';
   title.textContent = 'О расширении';
 
-  const infoSpacer = document.createElement('div');
-  infoSpacer.style.cssText = 'width:24px;height:24px;flex-shrink:0';
+  const webBtn = document.createElement('button');
+  webBtn.className = 'header-info-btn';
+  webBtn.title = 'Репозиторий';
+  webBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
+  webBtn.addEventListener('click', () => window.open('https://github.com/Vova-iz-Tambova/rus-uncensored-words-highlight'));
 
-  header.append(back, title, infoSpacer);
+  header.append(back, title, webBtn);
 
   const content = document.createElement('div');
   content.className = 'info-content';
@@ -575,14 +843,31 @@ function openExtensionInfo() {
     content.appendChild(row);
   }
 
-  addRow('Версия', '2.0.0');
+  addRow('Версия', '2.0.2');
   addRow('Автор', 'Vova-iz-Tambova', 'https://github.com/Vova-iz-Tambova');
-  addRow('Репозиторий', null, 'https://github.com/Vova-iz-Tambova/rus-uncensored-words-highlight');
-  addRow('Лицензия', 'MIT');
+  const desc = document.createElement('div');
+  desc.style.cssText = 'margin-top:10px;font-size:12px;line-height:1.6;color:#444;';
 
-  const desc = document.createElement('p');
-  desc.style.cssText = 'margin-top:10px;font-size:12px;line-height:1.5;color:#444;padding:8px 0;';
-  desc.textContent = 'Расширение выделяет нецензурную лексику на веб-страницах. Можно создавать собственные списки слов, выбирать цвета и стиль подсветки (цвет текста или маркер). Списки синхронизируются между вкладками.';
+  desc.innerHTML = `
+    <p style="margin-bottom:8px">Расширение выделяет нецензурную лексику на веб-страницах. Можно создавать собственные списки слов, выбирать цвета и стиль подсветки (цвет текста или маркер).</p>
+    <p style="margin:0 0 0 0"><b>Списки:</b></p>
+    <p style="margin:0;font-size:12px">
+      <span style="font-size:15px">☑</span> подсвечивать только точное совпадение
+    </p>
+    <p style="margin:0;font-size:12px">
+      <span style="font-size:15px">☐</span> подсвечивать любое совпадение
+    </p>
+    <p style="margin:0;font-size:12px">
+      <span style="display:inline-block;border:1px solid #bbb;border-radius:3px;padding:0 3px;font-size:11px;line-height:1.6"><svg viewBox="0 0 24 24" width="11" height="11" fill="#666" style="display:block"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg></span> загрузить слова из текстового файла
+    </p>
+    <p style="margin:4px 0 8px"><b>Контекстное меню:</b> выделите слово на странице и нажмите правую кнопку мыши — появится пункт «Подсветить слово».</p>
+    <p style="margin-bottom:0;font-size:12px;line-height:2">
+      <span style="display:inline-block;border:1px solid #bbb;border-radius:3px;padding:0 5px;font-size:11px;line-height:1.6">+</span> добавить в список<br>
+      <span style="display:inline-block;border:1px solid #bbb;border-radius:3px;padding:0 5px;font-size:11px;line-height:1.6">−</span> удалить из списка<br>
+      <span style="display:inline-block;border:1px solid #bbb;border-radius:3px;padding:0 5px;font-size:11px;line-height:1.6">&gt;</span> перенести в список<br>
+      <span style="display:inline-block;border:1px solid #bbb;border-radius:3px;padding:0 5px;font-size:11px;line-height:1.6">=</span> только информация, встроенная подсветка<br>
+    </p>
+  `;
 
   content.appendChild(desc);
   infoView.append(header, content);
@@ -596,12 +881,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (data.lists) renderLists(data.lists);
   });
 
-  document.getElementById('addBtn').addEventListener('click', openAddView);
+  document.getElementById('settingsBtn').addEventListener('click', openSitesEditor);
   document.getElementById('infoBtn').addEventListener('click', openExtensionInfo);
+  document.getElementById('addListBtn').addEventListener('click', openAddView);
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if ('lists' in changes && !editingList && document.getElementById('addView').style.display !== '' && document.getElementById('infoView').style.display !== '') {
+    if ('lists' in changes && !editingList && !isSitesEditorOpen && document.getElementById('addView').style.display !== '' && document.getElementById('infoView').style.display !== '') {
       renderLists(changes.lists.newValue);
     }
   });
