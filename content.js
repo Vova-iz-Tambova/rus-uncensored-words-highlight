@@ -271,6 +271,7 @@
     for (const n of nodes) {
       const html = nodeParts.get(n);
       if (!html) continue;
+      if (!html.includes('<span')) continue;
       const wrapper = document.createElement('span');
       wrapper.setAttribute('data-hl-wrapper', '');
       wrapper.innerHTML = html;
