@@ -10,6 +10,7 @@
 
   let activeLists = [];
   let customRegexCache = {};
+  const trackedWrappers = new Set();
 
   function isForeignHighlight(element) {
     if (!element) return false;
@@ -191,6 +192,15 @@
     wrapper.classList.add('hl-ext');
     wrapper.innerHTML = result;
     node.parentNode.replaceChild(wrapper, node);
+    trackedWrappers.add(wrapper);
+  }
+
+  function unwrapWrapper(w) {
+    const text = w.textContent;
+    const t = document.createTextNode(text);
+    w.replaceWith(t);
+    trackedWrappers.delete(w);
+    return t;
   }
 
   function getBlockAncestor(node) {
@@ -282,6 +292,7 @@
       wrapper.classList.add('hl-ext');
       wrapper.innerHTML = html;
       n.parentNode.replaceChild(wrapper, n);
+      trackedWrappers.add(wrapper);
     }
   }
 
@@ -289,19 +300,10 @@
     if (root.nodeType === Node.TEXT_NODE) root = root.parentNode;
     if (!root) return;
 
-    if (hasActiveCustomLists()) {
-      root.querySelectorAll('span.hl-ext[data-hl-wrapper]').forEach(w => {
-        const t = document.createTextNode(w.textContent);
-        w.replaceWith(t);
-      });
-    }
-
     const textNodes = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
-        if (isOurHighlight(node.parentNode)) {
-          return hasActiveCustomLists() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-        }
+        if (isOurHighlight(node.parentNode)) return NodeFilter.FILTER_REJECT;
         if (isForeignHighlight(node.parentNode)) return NodeFilter.FILTER_REJECT;
         const tag = node.parentNode.tagName;
         if (tag === 'STYLE' || tag === 'SCRIPT' || tag === 'SVG') return NodeFilter.FILTER_REJECT;
@@ -333,7 +335,10 @@
   }
 
   function clearHighlights() {
-    document.querySelectorAll('span.hl-ext[data-hl-wrapper]').forEach(w => w.replaceWith(w.textContent));
+    for (const w of [...trackedWrappers]) {
+      if (w.isConnected) unwrapWrapper(w);
+    }
+    trackedWrappers.clear();
   }
 
   let observer = null;
@@ -354,7 +359,9 @@
     });
     observer.observe(document.body, { childList: true, subtree: true });
     processTargetElements();
-    intervalId = setInterval(() => { processTargetElements(); }, 3000);
+    intervalId = setInterval(() => {
+      if (dirty) { dirty = false; processTargetElements(); }
+    }, 3000);
   }
 
   function stopWatching() {
@@ -364,7 +371,6 @@
   }
 
   function refreshHighlights() {
-    clearHighlights();
     processTargetElements();
   }
 
@@ -397,7 +403,10 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if ('lists' in changes || 'disabledSites' in changes) {
+    if ('lists' in changes) {
+      const oldVal = JSON.stringify(changes.lists.oldValue || []);
+      const newVal = JSON.stringify(changes.lists.newValue || []);
+      if (oldVal === newVal) return;
       chrome.storage.local.get(['lists', 'disabledSites']).then(data => {
         if (isSiteDisabled(data.disabledSites)) {
           stopWatching();
@@ -408,10 +417,19 @@
           if (!observer) {
             startWatching();
           } else {
-            refreshHighlights();
+            processTargetElements();
           }
         } else {
           stopWatching();
+        }
+      });
+    } else if ('disabledSites' in changes) {
+      chrome.storage.local.get(['lists', 'disabledSites']).then(data => {
+        if (isSiteDisabled(data.disabledSites)) {
+          stopWatching();
+        } else if (data.lists) {
+          buildActiveLists(data.lists);
+          if (!observer) startWatching();
         }
       });
     }

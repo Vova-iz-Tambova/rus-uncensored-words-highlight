@@ -843,7 +843,7 @@ function openExtensionInfo() {
     content.appendChild(row);
   }
 
-  addRow('Версия', '2.1.0');
+  addRow('Версия', '2.1.1');
   addRow('Автор', 'Vova-iz-Tambova', 'https://github.com/Vova-iz-Tambova');
   const desc = document.createElement('div');
   desc.style.cssText = 'margin-top:10px;font-size:12px;line-height:1.6;color:#444;';
