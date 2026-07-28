@@ -4,7 +4,7 @@
   if (!document.getElementById('highlight-style')) {
     const style = document.createElement('style');
     style.id = 'highlight-style';
-    style.textContent = '.hl-w { white-space: nowrap !important; }';
+    style.textContent = '.hl-w { white-space: nowrap !important; padding: 0 !important; margin: 0 !important; }';
     document.head.appendChild(style);
   }
 
@@ -33,10 +33,14 @@
     if (!element) return false;
     let el = element;
     while (el && el !== document.body) {
-      if (el.hasAttribute && el.hasAttribute('data-hl-wrapper')) return true;
+      if (el.classList && el.classList.contains('hl-ext')) return true;
       el = el.parentNode;
     }
     return false;
+  }
+
+  function hasActiveCustomLists() {
+    return activeLists.some(l => l.type === 'custom' || l.type === 'file');
   }
 
   function isSiteDisabled(disabledSites) {
@@ -184,6 +188,7 @@
 
     const wrapper = document.createElement('span');
     wrapper.setAttribute('data-hl-wrapper', '');
+    wrapper.classList.add('hl-ext');
     wrapper.innerHTML = result;
     node.parentNode.replaceChild(wrapper, node);
   }
@@ -274,6 +279,7 @@
       if (!html.includes('<span')) continue;
       const wrapper = document.createElement('span');
       wrapper.setAttribute('data-hl-wrapper', '');
+      wrapper.classList.add('hl-ext');
       wrapper.innerHTML = html;
       n.parentNode.replaceChild(wrapper, n);
     }
@@ -283,10 +289,19 @@
     if (root.nodeType === Node.TEXT_NODE) root = root.parentNode;
     if (!root) return;
 
+    if (hasActiveCustomLists()) {
+      root.querySelectorAll('span.hl-ext[data-hl-wrapper]').forEach(w => {
+        const t = document.createTextNode(w.textContent);
+        w.replaceWith(t);
+      });
+    }
+
     const textNodes = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
-        if (isOurHighlight(node.parentNode)) return NodeFilter.FILTER_REJECT;
+        if (isOurHighlight(node.parentNode)) {
+          return hasActiveCustomLists() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        }
         if (isForeignHighlight(node.parentNode)) return NodeFilter.FILTER_REJECT;
         const tag = node.parentNode.tagName;
         if (tag === 'STYLE' || tag === 'SCRIPT' || tag === 'SVG') return NodeFilter.FILTER_REJECT;
@@ -318,11 +333,12 @@
   }
 
   function clearHighlights() {
-    document.querySelectorAll('[data-hl-wrapper]').forEach(w => w.replaceWith(w.textContent));
+    document.querySelectorAll('span.hl-ext[data-hl-wrapper]').forEach(w => w.replaceWith(w.textContent));
   }
 
   let observer = null;
   let intervalId = null;
+  let dirty = false;
 
   function startWatching() {
     if (observer) return;
@@ -334,10 +350,11 @@
           }
         }
       }
+      dirty = true;
     });
     observer.observe(document.body, { childList: true, subtree: true });
     processTargetElements();
-    intervalId = setInterval(processTargetElements, 300);
+    intervalId = setInterval(() => { processTargetElements(); }, 3000);
   }
 
   function stopWatching() {
