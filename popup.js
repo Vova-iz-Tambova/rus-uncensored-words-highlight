@@ -14,6 +14,26 @@ let currentLists = [];
 let editingList = null;
 let isSitesEditorOpen = false;
 
+function storageSet(data, callback) {
+  chrome.storage.local.set(data, () => {
+    chrome.storage.sync.set(data, () => {
+      if (callback) callback();
+    });
+  });
+}
+
+function storageGet(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, (result) => {
+      if (Object.keys(result).length > 0) {
+        resolve(result);
+      } else {
+        chrome.storage.sync.get(keys, resolve);
+      }
+    });
+  });
+}
+
 function findWordInLists(word, excludeId) {
   const lower = word.toLowerCase();
   for (const list of currentLists) {
@@ -113,7 +133,7 @@ function createListRow(list) {
   toggleInput.addEventListener('change', () => {
     list.enabled = toggleInput.checked;
     row.classList.toggle('disabled', !list.enabled);
-    chrome.storage.local.set({ lists: currentLists });
+    storageSet({ lists: currentLists });
   });
 
   return row;
@@ -208,7 +228,7 @@ function openEditor(list) {
     const matchInside = list.matchInside || {};
 
     function saveWordList() {
-      chrome.storage.local.set({ lists: currentLists });
+      storageSet({ lists: currentLists });
       updateSaveBtn();
     }
 
@@ -226,6 +246,49 @@ function openEditor(list) {
         saveBtn.title = 'Нет слов для сохранения';
       }
     }
+
+    // Обработчик вставки текста в редакторе
+    wordList.addEventListener('paste', (e) => {
+      const target = e.target;
+      if (!target.classList.contains('word-text')) return;
+      
+      e.preventDefault();
+      
+      const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+      if (!text) return;
+      
+      // Разбиваем текст на слова по переносам строк и запятым
+      const newWords = text
+        .split(/[\r\n,]+/)
+        .map(w => w.trim())
+        .filter(w => w.length > 0);
+      
+      if (newWords.length === 0) return;
+      
+      // Находим индекс текущего слова
+      const row = target.closest('.word-row');
+      if (!row) return;
+      const idx = parseInt(row.dataset.wordIdx);
+      
+      // Заменяем текущее слово на массив новых слов
+      list.words.splice(idx, 1, ...newWords);
+      
+      // Сохраняем
+      saveWordList();
+      renderWords();
+      
+      // Фокусируемся на последнем вставленном слове
+      const spans = wordList.querySelectorAll('.word-text');
+      const focusIdx = Math.min(idx + newWords.length, spans.length - 1);
+      if (spans[focusIdx]) {
+        spans[focusIdx].focus();
+        const range = document.createRange();
+        range.selectNodeContents(spans[focusIdx]);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    });
 
     function createWordRow(wordText, idx) {
       const row = document.createElement('div');
@@ -309,15 +372,9 @@ function openEditor(list) {
         }
       });
 
-      text.addEventListener('paste', e => {
-        e.preventDefault();
-        const textData = (e.clipboardData || window.clipboardData).getData('text/plain');
-        const sel = window.getSelection();
-        if (!sel.rangeCount) return;
-        sel.deleteFromDocument();
-        sel.getRangeAt(0).insertNode(document.createTextNode(textData));
-        sel.collapseToEnd();
-      });
+      // Удаляем старый обработчик paste, если был
+      text.removeEventListener('paste', () => {});
+      // Вставка теперь обрабатывается на уровне wordList
 
       row.append(cb, text);
       for (const other of otherLists) {
@@ -371,8 +428,9 @@ function openEditor(list) {
   confirmBtn.addEventListener('click', () => {
     const idx = currentLists.indexOf(list);
     if (idx !== -1) currentLists.splice(idx, 1);
-    chrome.storage.local.set({ lists: currentLists });
-    renderLists(currentLists);
+    storageSet({ lists: currentLists }, () => {
+      renderLists(currentLists);
+    });
   });
 
   confirmRow.append(cancelBtn, confirmBtn);
@@ -577,37 +635,44 @@ function openAddView() {
     if (!f) return;
     const reader = new FileReader();
     reader.onload = e => {
-      loadedWords = e.target.result.split('\n').map(w => w.trim()).filter(w => w);
-      const seen = new Set();
-      const deduped = [];
-      for (const w of loadedWords) {
-        const lower = w.toLowerCase();
-        if (!seen.has(lower)) { seen.add(lower); deduped.push(w); }
-      }
-      const dupCount = loadedWords.length - deduped.length;
-      loadedWords = deduped;
+      try {
+        loadedWords = e.target.result.split(/\r?\n|\r/).map(w => w.trim()).filter(w => w);
+        const seen = new Set();
+        const deduped = [];
+        for (const w of loadedWords) {
+          const lower = w.toLowerCase();
+          if (!seen.has(lower)) { seen.add(lower); deduped.push(w); }
+        }
+        const dupCount = loadedWords.length - deduped.length;
+        loadedWords = deduped;
 
-      const skipped = [];
-      const afterCross = [];
-      for (const w of loadedWords) {
-        const other = findWordInLists(w, null);
-        if (other) skipped.push(w);
-        else afterCross.push(w);
-      }
-      const skipCount = skipped.length;
-      loadedWords = afterCross;
+        const skipped = [];
+        const afterCross = [];
+        for (const w of loadedWords) {
+          const other = findWordInLists(w, null);
+          if (other) skipped.push(w);
+          else afterCross.push(w);
+        }
+        const skipCount = skipped.length;
+        loadedWords = afterCross;
 
-      loadedFileName = f.name;
-      fuBtn.innerHTML = trashSvg;
-      fuBtn.title = 'Удалить файл';
-      fuBtn.style.background = '#c62828';
-      builtinInput.checked = false;
-      isBuiltin = false;
-      builtinInput.disabled = true;
-      builtinSlider.style.opacity = '0.35';
-      builtinLabel.style.opacity = '0.35';
-      updateFileUI(dupCount, skipCount);
-      updateUI();
+        loadedFileName = f.name;
+        fuBtn.innerHTML = trashSvg;
+        fuBtn.title = 'Удалить файл';
+        fuBtn.style.background = '#c62828';
+        builtinInput.checked = false;
+        isBuiltin = false;
+        builtinInput.disabled = true;
+        builtinSlider.style.opacity = '0.35';
+        builtinLabel.style.opacity = '0.35';
+        updateFileUI(dupCount, skipCount);
+        updateUI();
+      } catch (err) {
+        alert('Ошибка при чтении файла: ' + err.message);
+      }
+    };
+    reader.onerror = () => {
+      alert('Ошибка при чтении файла: ' + (reader.error?.code || 'неизвестная ошибка'));
     };
     reader.readAsText(f);
   });
@@ -675,24 +740,29 @@ function openAddView() {
   }
 
   confirmBtn.addEventListener('click', () => {
-    const sw = PALETTE.find(p => p.id === selectedId);
-    if (!sw || confirmBtn.disabled) return;
-    const typeLabel = selectedType === 'text' ? 'текст' : 'маркер';
-    const name = customName || (isBuiltin ? 'Русский мат' : `${sw.name} ${typeLabel}`);
-    const newId = (customName || isBuiltin) ? `${sw.id}-${selectedType}-${Date.now()}` : `${sw.id}-${selectedType}`;
-    const newList = {
-      id: newId,
-      name,
-      color: sw.color,
-      type: isBuiltin ? 'builtin' : 'custom',
-      style: selectedType,
-      enabled: true,
-      words: isBuiltin ? [] : loadedWords
-    };
+    try {
+      const sw = PALETTE.find(p => p.id === selectedId);
+      if (!sw || confirmBtn.disabled) return;
+      const typeLabel = selectedType === 'text' ? 'текст' : 'маркер';
+      const name = customName || (isBuiltin ? 'Русский мат' : `${sw.name} ${typeLabel}`);
+      const newId = (customName || isBuiltin) ? `${sw.id}-${selectedType}-${Date.now()}` : `${sw.id}-${selectedType}`;
+      const newList = {
+        id: newId,
+        name,
+        color: sw.color,
+        type: isBuiltin ? 'builtin' : 'custom',
+        style: selectedType,
+        enabled: true,
+        words: isBuiltin ? [] : loadedWords
+      };
 
-    currentLists.push(newList);
-    chrome.storage.local.set({ lists: currentLists });
-    renderLists(currentLists);
+      currentLists.push(newList);
+      storageSet({ lists: currentLists }, () => {
+        renderLists(currentLists);
+      });
+    } catch (e) {
+      console.error('[popup] error adding list:', e);
+    }
   });
 
   const scrollArea = document.createElement('div');
@@ -744,11 +814,11 @@ function openSitesEditor() {
     if (!f) return;
     const reader = new FileReader();
     reader.onload = e => {
-      const lines = e.target.result.split('\n').map(s => s.trim()).filter(s => s);
+      const lines = e.target.result.split(/\r?\n|\r/).map(s => s.trim()).filter(s => s);
       const existing = textarea.value.split('\n').map(s => s.trim()).filter(s => s);
       const merged = [...new Set([...existing, ...lines])];
       textarea.value = merged.join('\n');
-      chrome.storage.local.set({ disabledSites: merged });
+      storageSet({ disabledSites: merged });
     };
     reader.readAsText(f);
   });
@@ -763,7 +833,7 @@ function openSitesEditor() {
   textarea.placeholder = 'avito.ru\n*.youtube.com\nexample.org';
   textarea.style.flex = '1';
 
-  chrome.storage.local.get('disabledSites').then(data => {
+  storageGet('disabledSites').then(data => {
     textarea.value = (data.disabledSites || []).join('\n');
   });
 
@@ -772,7 +842,7 @@ function openSitesEditor() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       const sites = textarea.value.split('\n').map(s => s.trim()).filter(s => s);
-      chrome.storage.local.set({ disabledSites: sites });
+      storageSet({ disabledSites: sites });
     }, 300);
   });
 
@@ -781,7 +851,7 @@ function openSitesEditor() {
   back.addEventListener('click', () => {
     clearTimeout(saveTimer);
     const sites = textarea.value.split('\n').map(s => s.trim()).filter(s => s);
-    chrome.storage.local.set({ disabledSites: sites }).then(() => {
+    storageSet({ disabledSites: sites }, () => {
       renderLists(currentLists);
     });
   });
@@ -843,7 +913,7 @@ function openExtensionInfo() {
     content.appendChild(row);
   }
 
-  addRow('Версия', '2.1.1');
+  addRow('Версия', '2.2.1');
   addRow('Автор', 'Vova-iz-Tambova', 'https://github.com/Vova-iz-Tambova');
   const desc = document.createElement('div');
   desc.style.cssText = 'margin-top:10px;font-size:12px;line-height:1.6;color:#444;';
@@ -877,7 +947,11 @@ function openExtensionInfo() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  chrome.storage.local.get('lists').then(data => {
+  window.addEventListener('error', (e) => {
+    alert('Ошибка: ' + (e.error?.message || e.message));
+  });
+
+  storageGet('lists').then(data => {
     if (data.lists) renderLists(data.lists);
   });
 
@@ -886,7 +960,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('addListBtn').addEventListener('click', openAddView);
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local') return;
+    if ((area !== 'local' && area !== 'sync')) return;
     if ('lists' in changes && !editingList && !isSitesEditorOpen && document.getElementById('addView').style.display !== '' && document.getElementById('infoView').style.display !== '') {
       renderLists(changes.lists.newValue);
     }

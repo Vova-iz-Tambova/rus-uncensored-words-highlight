@@ -1,11 +1,32 @@
 (function () {
   'use strict';
 
-  if (!document.getElementById('highlight-style')) {
+  function _storageSet(data, callback) {
+    chrome.storage.local.set(data, () => {
+      chrome.storage.sync.set(data, () => {
+        if (callback) callback();
+      });
+    });
+  }
+
+  function _storageGet(keys) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(keys, (result) => {
+        if (Object.keys(result).length > 0) {
+          resolve(result);
+        } else {
+          chrome.storage.sync.get(keys, resolve);
+        }
+      });
+    });
+  }
+
+  const styleHost = document.head || document.documentElement;
+  if (styleHost && !document.getElementById('highlight-style')) {
     const style = document.createElement('style');
     style.id = 'highlight-style';
     style.textContent = '.hl-w { white-space: nowrap !important; padding: 0 !important; margin: 0 !important; }';
-    document.head.appendChild(style);
+    styleHost.appendChild(style);
   }
 
   let activeLists = [];
@@ -376,38 +397,38 @@
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === 'addWord') {
-      chrome.storage.local.get('lists').then(data => {
+      _storageGet('lists').then(data => {
         const lists = data.lists || [];
         const list = lists.find(l => l.id === message.listId);
         if (list && list.type === 'custom') {
           const word = message.word.trim();
           if (word && !list.words.includes(word)) {
             list.words.push(word);
-            chrome.storage.local.set({ lists }).then(() => {
+            _storageSet({ lists }, () => {
               buildActiveLists(lists);
               refreshHighlights();
             });
           }
         }
-      });
+      }).catch(() => {});
     }
   });
 
-  chrome.storage.local.get(['lists', 'disabledSites']).then(data => {
+  _storageGet(['lists', 'disabledSites']).then(data => {
     if (isSiteDisabled(data.disabledSites)) return;
     if (data.lists) {
       buildActiveLists(data.lists);
       startWatching();
     }
-  });
+  }).catch(() => {});
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local') return;
+    if (area !== 'sync') return;
     if ('lists' in changes) {
       const oldVal = JSON.stringify(changes.lists.oldValue || []);
       const newVal = JSON.stringify(changes.lists.newValue || []);
       if (oldVal === newVal) return;
-      chrome.storage.local.get(['lists', 'disabledSites']).then(data => {
+      _storageGet(['lists', 'disabledSites']).then(data => {
         if (isSiteDisabled(data.disabledSites)) {
           stopWatching();
           return;
@@ -422,16 +443,16 @@
         } else {
           stopWatching();
         }
-      });
+      }).catch(() => {});
     } else if ('disabledSites' in changes) {
-      chrome.storage.local.get(['lists', 'disabledSites']).then(data => {
+      _storageGet(['lists', 'disabledSites']).then(data => {
         if (isSiteDisabled(data.disabledSites)) {
           stopWatching();
         } else if (data.lists) {
           buildActiveLists(data.lists);
           if (!observer) startWatching();
         }
-      });
+      }).catch(() => {});
     }
   });
 
@@ -441,7 +462,7 @@
     if (!word) return;
     clearTimeout(titleTimer);
     titleTimer = setTimeout(() => {
-      chrome.runtime.sendMessage({ action: 'updateTitles', word });
+      chrome.runtime.sendMessage({ action: 'updateTitles', word }).catch(() => {});
     }, 200);
   });
 })();

@@ -5,3 +5,4 @@ Thumbs.db
 icons/*.png
 !icons/.gitkeep
 .gigacode
+.gigacode_vsc

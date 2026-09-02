@@ -1,5 +1,25 @@
 importScripts('patterns.js');
 
+function _bgStorageSet(data, callback) {
+  chrome.storage.local.set(data, () => {
+    chrome.storage.sync.set(data, () => {
+      if (callback) callback();
+    });
+  });
+}
+
+function _bgStorageGet(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, (result) => {
+      if (Object.keys(result).length > 0) {
+        resolve(result);
+      } else {
+        chrome.storage.sync.get(keys, resolve);
+      }
+    });
+  });
+}
+
 const DEFAULT_LISTS = [
   { id: 'profanity', name: 'Русский мат', color: '#ff0', textColor: '#000', type: 'builtin', style: 'marker', enabled: true }
 ];
@@ -31,12 +51,12 @@ function recreateMenus(lists) {
 }
 
 function init() {
-  chrome.storage.local.get(['lists', 'disabledSites']).then(data => {
+  _bgStorageGet(['lists', 'disabledSites']).then(data => {
     if (!data.disabledSites) {
-      chrome.storage.local.set({ disabledSites: ['*.avito.ru'] });
+      _bgStorageSet({ disabledSites: ['*.avito.ru'] });
     }
     if (!data.lists) {
-      chrome.storage.local.set({ lists: DEFAULT_LISTS });
+      _bgStorageSet({ lists: DEFAULT_LISTS });
       recreateMenus(DEFAULT_LISTS);
     } else {
       const merged = DEFAULT_LISTS.map(def => {
@@ -54,7 +74,7 @@ function init() {
           merged.push(old);
         }
       }
-      chrome.storage.local.set({ lists: merged });
+      _bgStorageSet({ lists: merged });
       recreateMenus(merged);
     }
   });
@@ -71,7 +91,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   if (message.action === 'updateTitles') {
     const word = message.word;
     if (!word) return;
-    chrome.storage.local.get('lists').then(data => {
+    _bgStorageGet('lists').then(data => {
       const lists = data.lists || [];
       const wordLists = lists.filter(l => l.type === 'custom' || l.type === 'file');
       const lower = word.toLowerCase();
@@ -123,7 +143,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   const word = info.selectionText.trim();
   if (!word) return;
 
-  chrome.storage.local.get('lists').then(data => {
+  _bgStorageGet('lists').then(data => {
     const lists = data.lists || [];
     const target = lists.find(l => l.id === info.menuItemId);
     if (!target || (target.type !== 'custom' && target.type !== 'file')) return;
@@ -147,12 +167,12 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       target.words.push(word);
     }
 
-    chrome.storage.local.set({ lists });
+    _bgStorageSet({ lists });
   });
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.lists) {
+  if (area === 'sync' && changes.lists) {
     recreateMenus(changes.lists.newValue);
   }
 });
