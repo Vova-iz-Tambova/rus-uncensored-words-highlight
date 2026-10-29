@@ -1,23 +1,61 @@
 (function () {
   'use strict';
 
+  // Флаг «мёртвого» контекста: после перезагрузки/обновления расширения
+  // старый content script остаётся на странице, но chrome.* API больше не работает
+  let dead = false;
+
+  function isContextAlive() {
+    try {
+      return !!(chrome.runtime && chrome.runtime.id);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Однократная деактивация: снять подсветку, отключить observer/интервал,
+  // чтобы старый скрипт больше не трогал страницу и не бросал ошибок
+  function handleInvalidContext() {
+    if (dead) return;
+    dead = true;
+    try {
+      stopWatching();
+      const style = document.getElementById('highlight-style');
+      if (style && style.isConnected) style.remove();
+    } catch (e) { /* контекст мёртв — тишина */ }
+  }
+
   function _storageSet(data, callback) {
-    chrome.storage.local.set(data, () => {
-      chrome.storage.sync.set(data, () => {
-        if (callback) callback();
+    if (dead || !isContextAlive()) { handleInvalidContext(); return; }
+    try {
+      chrome.storage.local.set(data, () => {
+        void chrome.runtime.lastError;
+        chrome.storage.sync.set(data, () => {
+          // sync может не записаться (квота) — local уже сохранён, это нормально
+          void chrome.runtime.lastError;
+          if (callback) callback();
+        });
       });
-    });
+    } catch (e) {
+      handleInvalidContext();
+    }
   }
 
   function _storageGet(keys) {
     return new Promise((resolve) => {
-      chrome.storage.local.get(keys, (result) => {
-        if (Object.keys(result).length > 0) {
-          resolve(result);
-        } else {
-          chrome.storage.sync.get(keys, resolve);
-        }
-      });
+      if (dead || !isContextAlive()) { handleInvalidContext(); resolve({}); return; }
+      try {
+        chrome.storage.local.get(keys, (result) => {
+          if (Object.keys(result).length > 0) {
+            resolve(result);
+          } else {
+            chrome.storage.sync.get(keys, resolve);
+          }
+        });
+      } catch (e) {
+        handleInvalidContext();
+        resolve({});
+      }
     });
   }
 
@@ -392,25 +430,56 @@
   }
 
   function refreshHighlights() {
+    // Полная переподсветка: снимаем старые обёртки, чтобы
+    // заново обработать и уже завёрнутые фрагменты текста
+    clearHighlights();
     processTargetElements();
   }
 
+  function applyListsFromStorage() {
+    return _storageGet(['lists', 'disabledSites']).then(data => {
+      if (isSiteDisabled(data.disabledSites)) {
+        stopWatching();
+        return;
+      }
+      if (data.lists) {
+        buildActiveLists(data.lists);
+        if (!observer) {
+          startWatching();
+        } else {
+          refreshHighlights();
+        }
+      } else {
+        stopWatching();
+      }
+    }).catch(() => {});
+  }
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (dead || !isContextAlive()) { handleInvalidContext(); return; }
     if (message.action === 'addWord') {
       _storageGet('lists').then(data => {
         const lists = data.lists || [];
         const list = lists.find(l => l.id === message.listId);
-        if (list && list.type === 'custom') {
-          const word = message.word.trim();
-          if (word && !list.words.includes(word)) {
-            list.words.push(word);
-            _storageSet({ lists }, () => {
-              buildActiveLists(lists);
-              refreshHighlights();
-            });
+        if (list && (list.type === 'custom' || list.type === 'file')) {
+          const word = (message.word || '').trim();
+          if (word) {
+            if (!list.words) list.words = [];
+            const lower = word.toLowerCase();
+            if (!list.words.some(w => w.toLowerCase() === lower)) {
+              list.words.push(word);
+              _storageSet({ lists }, () => {
+                buildActiveLists(lists);
+                refreshHighlights();
+              });
+            }
           }
         }
       }).catch(() => {});
+    } else if (message.action === 'listsUpdated') {
+      // Background изменил списки (например, через контекстное меню) —
+      // обновляемся немедленно, не дожидаясь storage-событий
+      applyListsFromStorage();
     }
   });
 
@@ -423,46 +492,33 @@
   }).catch(() => {});
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'sync') return;
+    if (dead || !isContextAlive()) { handleInvalidContext(); return; }
+    // Слушаем и local, и sync: запись в sync может молча падать
+    // (лимит 8КБ на элемент), а local — основной источник данных
+    if (area !== 'local' && area !== 'sync') return;
     if ('lists' in changes) {
       const oldVal = JSON.stringify(changes.lists.oldValue || []);
       const newVal = JSON.stringify(changes.lists.newValue || []);
       if (oldVal === newVal) return;
-      _storageGet(['lists', 'disabledSites']).then(data => {
-        if (isSiteDisabled(data.disabledSites)) {
-          stopWatching();
-          return;
-        }
-        if (data.lists) {
-          buildActiveLists(data.lists);
-          if (!observer) {
-            startWatching();
-          } else {
-            processTargetElements();
-          }
-        } else {
-          stopWatching();
-        }
-      }).catch(() => {});
+      applyListsFromStorage();
     } else if ('disabledSites' in changes) {
-      _storageGet(['lists', 'disabledSites']).then(data => {
-        if (isSiteDisabled(data.disabledSites)) {
-          stopWatching();
-        } else if (data.lists) {
-          buildActiveLists(data.lists);
-          if (!observer) startWatching();
-        }
-      }).catch(() => {});
+      applyListsFromStorage();
     }
   });
 
   let titleTimer = null;
   document.addEventListener('mouseup', () => {
+    if (dead) return;
     const word = window.getSelection().toString().trim();
     if (!word) return;
     clearTimeout(titleTimer);
     titleTimer = setTimeout(() => {
-      chrome.runtime.sendMessage({ action: 'updateTitles', word }).catch(() => {});
+      if (dead || !isContextAlive()) { handleInvalidContext(); return; }
+      try {
+        chrome.runtime.sendMessage({ action: 'updateTitles', word }).catch(() => {});
+      } catch (e) {
+        handleInvalidContext();
+      }
     }, 200);
   });
 })();

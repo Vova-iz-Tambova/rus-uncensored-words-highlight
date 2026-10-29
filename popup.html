@@ -488,6 +488,42 @@
             color: #666;
             text-align: center;
         }
+
+        /* Userscript export section (настройки) */
+        .us-section {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid #f0f0f0;
+            flex-shrink: 0;
+        }
+        .us-title {
+            text-align: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: #222;
+            margin-bottom: 6px;
+        }
+        .us-btn {
+            display: block;
+            width: 100%;
+            padding: 5px 0;
+            border: 1px solid #1976d2;
+            border-radius: 4px;
+            background: #fff;
+            color: #1976d2;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background .15s, transform .1s;
+        }
+        .us-btn:hover { background: #e3f2fd; }
+        .us-btn:active { transform: scale(0.96); }
+        .us-hint {
+            font-size: 11px;
+            color: #999;
+            margin-bottom: 6px;
+            line-height: 1.5;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -510,6 +546,7 @@
     <div id="addView" style="display:none"></div>
     <div id="infoView" style="display:none"></div>
 
+    <script src="patterns.js"></script>
     <script src="popup.js"></script>
 </body>
 </html>

@@ -2,7 +2,10 @@ importScripts('patterns.js');
 
 function _bgStorageSet(data, callback) {
   chrome.storage.local.set(data, () => {
+    void chrome.runtime.lastError;
     chrome.storage.sync.set(data, () => {
+      // sync может упасть (квота 8КБ и т.п.) — это не критично, local уже записан
+      void chrome.runtime.lastError;
       if (callback) callback();
     });
   });
@@ -25,28 +28,53 @@ const DEFAULT_LISTS = [
 ];
 
 let recreateTimer = null;
+let lastMenuSignature = null;
+let menusBuilding = false;
+let rebuildQueued = false;
 
-function recreateMenus(lists) {
+function buildMenusNow(lists) {
+  menusBuilding = true;
+  chrome.contextMenus.removeAll(() => {
+    void chrome.runtime.lastError;
+    chrome.contextMenus.create({
+      id: 'addWord',
+      title: 'Подсветить слово',
+      contexts: ['selection']
+    }, () => { void chrome.runtime.lastError; });
+    for (const list of lists) {
+      if (list.type === 'custom' || list.type === 'file') {
+        chrome.contextMenus.create({
+          id: list.id,
+          parentId: 'addWord',
+          title: '+ ' + list.name,
+          contexts: ['selection']
+        }, () => { void chrome.runtime.lastError; });
+      }
+    }
+    menusBuilding = false;
+    if (rebuildQueued) {
+      rebuildQueued = false;
+      recreateMenus(lists, true);
+    }
+  });
+}
+
+function recreateMenus(lists, force) {
+  // Пересоздаём меню только когда реально изменился состав кастомных списков.
+  // Это убирает гонку removeAll/create при каждом добавлении слова,
+  // из-за которой пункты меню временно пропадали.
+  const signature = (lists || [])
+    .filter(l => l.type === 'custom' || l.type === 'file')
+    .map(l => l.id + ':' + l.name)
+    .sort()
+    .join('|');
+  if (!force && signature === lastMenuSignature) return;
+  lastMenuSignature = signature;
+  if (menusBuilding) { rebuildQueued = true; return; }
   if (recreateTimer) clearTimeout(recreateTimer);
   recreateTimer = setTimeout(() => {
     recreateTimer = null;
-    chrome.contextMenus.removeAll(() => {
-      chrome.contextMenus.create({
-        id: 'addWord',
-        title: 'Подсветить слово',
-        contexts: ['selection']
-      }, () => { void chrome.runtime.lastError; });
-      for (const list of lists) {
-        if (list.type === 'custom' || list.type === 'file') {
-          chrome.contextMenus.create({
-            id: list.id,
-            parentId: 'addWord',
-            title: '+ ' + list.name,
-            contexts: ['selection']
-          }, () => { void chrome.runtime.lastError; });
-        }
-      }
-    });
+    buildMenusNow(lists);
   }, 50);
 }
 
@@ -128,7 +156,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
                 parentId: 'addWord',
                 title: `${prefix} ${list.name}`,
                 contexts: ['selection']
-              });
+              }, () => { void chrome.runtime.lastError; });
             }
           });
         }
@@ -167,12 +195,25 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       target.words.push(word);
     }
 
-    _bgStorageSet({ lists });
+    _bgStorageSet({ lists }, () => {
+      // Сразу уведомляем таб, чтобы слово подсветилось без ожидания storage-событий
+      if (tab && tab.id !== undefined) {
+        chrome.tabs.sendMessage(tab.id, { action: 'listsUpdated' }, () => { void chrome.runtime.lastError; });
+      }
+      // Обновляем префиксы пунктов меню (−, >, +) для текущего слова
+      _bgStorageGet('lists').then(d => recreateMenus(d.lists, false));
+    });
   });
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'sync' && changes.lists) {
-    recreateMenus(changes.lists.newValue);
+  if ((area === 'local' || area === 'sync') && changes.lists) {
+    // local — основной источник (sync может не записаться из-за квоты)
+    if (area === 'local') {
+      recreateMenus(changes.lists.newValue);
+    } else {
+      // sync-событие: актуально для данных, пришедших с другого устройства
+      _bgStorageGet('lists').then(d => recreateMenus(d.lists));
+    }
   }
 });
